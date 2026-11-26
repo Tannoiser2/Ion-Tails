@@ -585,11 +585,13 @@ class Windsock:
 
 
 # ---------- terreno: argine di neve intorno alla pista, con i declivi ai lati ----------
-const T_FLAT := 1.45     # distanza dalla casella più vicina fino a cui il terreno sta alla quota della pista
-const T_SLOPE := 0.5     # larghezza della parete del canyon
-const T_STEP := 0.2      # passo della griglia
+const T_FLAT := 1.45     # (Snow Tails) non più usato per la forma: resta per compatibilità
+const T_SLOPE := 0.45    # larghezza della parete del canyon
+const T_STEP := 0.15     # passo della griglia
 const T_GROUND := -0.025
 const WALL_H := 1.25     # altezza delle pareti del canyon sopra la pista
+const SHELF_H := 0.3     # banchina di roccia subito fuori dalle caselle
+const SHELF_W := 0.75    # larghezza della banchina prima della parete del canyon
 const T_ALBEDO := Color(1, 1, 1)
 const GROUND_TINT := Color("8a4a2a")
 ## Fasce di colore della roccia (dal basso in alto): arenaria, ocra, ruggine, scura.
@@ -603,9 +605,14 @@ static func _strata(h: float, n: float) -> Color:
 	var t: float = clamp((x - floor(x) - 0.75) / 0.25, 0.0, 1.0)
 	return a.lerp(b, t)
 
-## Terreno a canyon: ogni punto prende la quota della tessera della casella più vicina, poi
-## si alza in una parete a strati fino all'altopiano. Sul bordo, i nidi dei cecchini
-## (le posizioni finiscono nel metadato "nests" del nodo restituito).
+static func _sstep(a: float, b: float, x: float) -> float:
+	var t: float = clamp((x - a) / (b - a), 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
+
+## Terreno a canyon. Ogni casella è un rettangolo orientato come la pista: dentro i rettangoli
+## il terreno sta alla quota della pista; appena fuori sale una banchina di roccia (così dove la
+## pista si restringe la roccia avanza a sperone), poi la parete a strati del canyon fino
+## all'altopiano. Sul ciglio, i nidi dei cecchini (metadato "nests" del nodo restituito).
 static func terrain(c: Course) -> Node3D:
 	var root := Node3D.new()
 	root.set_meta("nests", [])
@@ -613,19 +620,38 @@ static func terrain(c: Course) -> Node3D:
 		return root
 	var S := BoardView3D.S
 	var bucket := {}
-	var bs := 2.5
+	var bs := 1.6
 	var mn := Vector2(INF, INF)
 	var mx := Vector2(-INF, -INF)
+	var cpos := []
+	var cdir := []
+	var chl := []
+	var chw := []
 	for cc in c.cells:
 		var w: Vector2 = cc["pos"] * S
+		cpos.append(w)
+		cdir.append(c.heading(int(cc["id"])))
+		# misure della casella dai vicini (nelle curve le corsie esterne sono più larghe)
+		var ln: float = c.cell_len
+		for t in cc["fwd"] + cc["bwd"]:
+			ln = max(ln, (c.cells[t]["pos"] - cc["pos"]).length() * 0.9)
+		var wd: float = c.lane_w
+		for sk in ["side_l", "side_r"]:
+			var sc := int(cc.get(sk, -1))
+			if sc >= 0:
+				wd = max(wd, (c.cells[sc]["pos"] - cc["pos"]).length())
+		chl.append(min(ln, c.cell_len * 1.6) * S * 0.56)
+		chw.append(min(wd, c.lane_w * 1.6) * S * 0.56)
 		mn = mn.min(w)
 		mx = mx.max(w)
 		var k := Vector2i(floor(w.x / bs), floor(w.y / bs))
 		if not bucket.has(k):
 			bucket[k] = []
 		bucket[k].append(cc["id"])
-	var reach := T_FLAT + T_SLOPE
-	var margin := reach + 2.4
+	var hl: float = c.cell_len * S * 0.56     # mezza lunghezza della casella (un po' abbondante)
+	var hw: float = c.lane_w * S * 0.56       # mezza larghezza
+	var reach: float = SHELF_W + T_SLOPE
+	var margin := reach + 3.0
 	mn -= Vector2.ONE * margin
 	mx += Vector2.ONE * margin
 	var nx := int(ceil((mx.x - mn.x) / T_STEP)) + 1
@@ -633,6 +659,9 @@ static func terrain(c: Course) -> Node3D:
 	var noise := FastNoiseLite.new()
 	noise.seed = 4242
 	noise.frequency = 0.55
+	var fine := FastNoiseLite.new()
+	fine.seed = 9
+	fine.frequency = 2.6
 	var big := FastNoiseLite.new()
 	big.seed = 77
 	big.frequency = 0.12
@@ -642,45 +671,51 @@ static func terrain(c: Course) -> Node3D:
 	hs.resize(nx * nz)
 	fs.resize(nx * nz)
 	ns.resize(nx * nz)
-	var rb := 1     # celle da 2,5: i vicini coprono almeno 2,5 di raggio, più della parete
-	var base_h := 0.0
 	for j in nz:
 		for i in nx:
 			var w := Vector2(mn.x + i * T_STEP, mn.y + j * T_STEP)
 			var kb := Vector2i(floor(w.x / bs), floor(w.y / bs))
 			var best := -1
 			var bd := INF
-			for dj in range(-rb, rb + 1):
-				for di in range(-rb, rb + 1):
+			for dj in range(-1, 2):
+				for di in range(-1, 2):
 					var lst = bucket.get(kb + Vector2i(di, dj))
 					if lst == null:
 						continue
 					for id in lst:
-						var d: float = (c.cells[id]["pos"] * S).distance_squared_to(w)
-						if d < bd:
-							bd = d
+						var off: Vector2 = w - cpos[id]
+						var dv: Vector2 = cdir[id]
+						var al: float = absf(off.dot(dv)) - float(chl[id])
+						var ac: float = absf(off.x * -dv.y + off.y * dv.x) - float(chw[id])
+						var e: float = Vector2(max(al, 0.0), max(ac, 0.0)).length()
+						if e < bd:
+							bd = e
 							best = id
+							if e <= 0.0:
+								break
 			var nn := noise.get_noise_2d(w.x, w.y)
+			var nf := fine.get_noise_2d(w.x, w.y)
 			var nb := big.get_noise_2d(w.x, w.y)
-			var top := base_h
+			var top := 0.0
 			if best >= 0:
 				top = c.piece_height(int(c.cells[best]["piece"]), w / S) - 0.03
-			var d := sqrt(bd) if best >= 0 else 99.0
-			# bordo irregolare: la parete comincia un po' prima o un po' dopo
-			var edge := T_FLAT + nb * 0.25
-			var t: float = clamp((d - edge) / T_SLOPE, 0.0, 1.0)
-			var f: float = 1.0 - (t * t * (3.0 - 2.0 * t))    # 1 sulla pista, 0 sull'altopiano
-			var wall := WALL_H + nb * 0.35 + nn * 0.06
-			var h: float = top + (1.0 - f) * wall
-			if f > 0.98:
-				h = top - 0.01 + nn * 0.01
-			# terrazzini sulla parete
-			h += sin(f * PI) * nn * 0.08
+			var d: float = bd if best >= 0 else 99.0
+			# banchina: sale subito fuori dalle caselle, superficie rocciosa irregolare
+			var shelf := _sstep(0.0, 0.16, d) * (SHELF_H + nn * 0.08 + nf * 0.07 + absf(nf) * 0.05)
+			# parete del canyon più in là, con il bordo irregolare
+			var w0: float = SHELF_W + nb * 0.25
+			var wall_t := _sstep(w0, w0 + T_SLOPE, d)
+			var wall: float = WALL_H + nb * 0.35 + nn * 0.06
+			var h: float = top + shelf + wall_t * max(wall - shelf, 0.0)
+			if d <= 0.0:
+				h = top - 0.01
+			h += sin(wall_t * PI) * (nn * 0.08 + nf * 0.06)
 			hs[j * nx + i] = h
-			fs[j * nx + i] = f
+			fs[j * nx + i] = 1.0 - wall_t if d > 0.0 else 1.0
 			ns[j * nx + i] = nn
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(-1)      # facce piatte: la roccia sembra spaccata, non modellata
 	for j in nz - 1:
 		for i in nx - 1:
 			var ids := [j * nx + i, j * nx + i + 1, (j + 1) * nx + i + 1, (j + 1) * nx + i]
@@ -688,9 +723,9 @@ static func terrain(c: Course) -> Node3D:
 				var id: int = ids[q]
 				var ii := id % nx
 				var jj := id / nx
-				var col := _strata(hs[id], ns[id])
+				var col := _strata(hs[id] * 2.2, ns[id])
 				if fs[id] > 0.97:
-					col = Color("8a4a2a").lerp(Color("a35a34"), 0.5 + ns[id] * 0.5)
+					col = Color("6e3a24").lerp(Color("9a5434"), 0.5 + ns[id] * 0.5)
 				elif fs[id] < 0.02:
 					col = col.lerp(Color("b86a3c"), 0.35)
 				st.set_color(col)

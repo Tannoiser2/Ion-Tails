@@ -41,6 +41,9 @@ bersaglio e la parete del canyon. **Invisibilità**: la navetta sparisce agli al
 sagoma trasparente); cecchini, missili, arpione e blast non la trovano, ma lei può sganciare mine e
 sparare; le mine colpiscono anche chi è invisibile.
 
+Fuori dalle caselle il terreno è una **banchina di roccia rialzata** che continua nelle pareti del canyon:
+dove la pista si restringe la roccia avanza a sperone (`SegmentFx.terrain`).
+
 Il resto è Snow Tails: carte 1-5, motori a 3 all'inizio, curve con limite, bordi, tamponamenti,
 massi, dune e crepacci, salto della gola. Nei segmenti fanmade il vento diventa **tempesta di sabbia**,
 la neve fresca **sabbia**, il ghiaccio **vetro** e la baita un'**officina**.

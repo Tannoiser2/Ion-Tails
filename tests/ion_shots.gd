@@ -91,4 +91,12 @@ func _run() -> void:
 	main.board.yaw_goal = main.board.yaw + 1.5
 	await wait(1.5)
 	await shot("11_side")
+	main.board.dist_goal = 22.0
+	main.board.pitch = deg_to_rad(80)
+	var ctr := Vector2.ZERO
+	for cc in main.course.cells: ctr += cc["pos"]
+	ctr /= main.course.cells.size()
+	main.board.target_goal = BoardView3D.to3(ctr)
+	await wait(2.0)
+	await shot("12_top")
 	quit()
