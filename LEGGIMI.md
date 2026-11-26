@@ -12,29 +12,44 @@ Progetto Godot 4.7, renderer Compatibility. Le tessere sono le scansioni di Snow
 
 ## Regole aggiuntive: punti gadget
 A inizio gara ogni navetta riceve una **scorta di punti** in base alla lunghezza della pista: un punto
-ogni 5 passi dalla partenza al traguardo (The Nutcracker 10, Bruce's Nightmare 14). Non se ne ricevono altri.
+ogni 4 passi dalla partenza al traguardo (The Nutcracker 11, Bruce's Nightmare 17). Non se ne ricevono altri.
 
-All'inizio di ogni **turno** (tutte le navette muovono una volta) ognuno decide **in segreto** quanti punti
-investire, da 0 a 3 per gadget, entro un **conto alla rovescia** scelto nel menu (20, 30, 60 secondi o
-senza limite; allo scadere vale la scelta fatta fin lì). Online scelgono tutti nello stesso momento;
+All'inizio di ogni **turno** (tutte le navette muovono una volta) ognuno sceglie **in segreto** i gadget:
+per ognuno ci sono due tasti, **1** e **2** punti; se ne accende al massimo uno, toccando quello acceso
+si spegne. C'è un **conto alla rovescia** scelto nel menu (20, 30, 60 secondi o senza limite; allo
+scadere vale la scelta fatta fin lì). Online e con i telefoni scelgono tutti nello stesso momento;
 sullo stesso dispositivo uno alla volta dietro la copertina. Poi si muove come in Snow Tails; i gadget
 si scoprono solo quando agiscono.
 
-| Categoria | Gadget | Effetto (per punto investito) |
-|---|---|---|
-| Attacchi | Cecchino | spara al bersaglio scelto quando finisce la mossa. Mira = 30% + 20% per punto, −4% per punto di velocità del bersaglio oltre 4, −8% per corsia di distanza dalla parete, −30% per punto di scudo. 1 danno |
-| Attacchi | Mine | una mina per punto sulle caselle che ti lasci dietro: chi ci passa prende 1 danno |
-| Attacchi | Missile | a fine mossa, dritto davanti nella tua corsia; gittata 3 + 2 per punto; 1 danno alla prima navetta |
-| Difese | Scudo | −30% alla mira dei cecchini per punto; ferma i missili da dietro solo il 15% delle volte per punto |
-| Difese | Radar | rivela le mine del settore (tessera) in cui sei; con 2 punti anche del seguente, con 3 dei due seguenti |
-| Difese | CME | contro i missili: 1 punto = cambia corsia una volta su due, 2 = cambia sempre corsia, 3 = esplode |
-| Movimento | Postbruciatore | +1 velocità per punto in questa mossa (conta per i limiti delle curve) |
-| Movimento | Arpione | la navetta più vicina davanti (fino a 6 passi) ha −1 velocità per punto in questo turno |
-| Movimento | Blast ionico | a fine mossa spinge di lato la navetta più vicina davanti (fino a 3 passi) di una corsia per punto, verso il bordo; se ci sbatte, 1 danno |
+**Tutti i gadget fanno mezzo danno**: ne servono due per un danno intero (5 danni = navetta distrutta).
+
+| Categoria | Gadget | 1 punto | 2 punti |
+|---|---|---|---|
+| Attacchi | Cecchino (bersaglio a scelta, spara a fine mossa del bersaglio) | mira 55% | mira 80% |
+| Attacchi | Mine (sulle caselle lasciate dietro) | 1 mina | 2 mine |
+| Attacchi | Missile (dritto nella tua corsia, a fine mossa) | gittata 7 | gittata 10 |
+| Difese | Scudo | −40% alla mira dei cecchini, ferma i missili il 20% delle volte | −80%, 40% |
+| Difese | Radar | mine del tuo settore e del seguente | anche del secondo seguente |
+| Difese | CME (contro i missili) | il missile cambia corsia | il missile esplode |
+| Difese | Invisibilità | 1 turno | 2 turni |
+| Movimento | Postbruciatore | +1 velocità | +2 velocità |
+| Movimento | Arpione (navetta più vicina davanti, fino a 6 passi) | −1 velocità | −2 velocità |
+| Movimento | Blast ionico (navetta più vicina davanti, fino a 3 passi) | 1 corsia verso il bordo | 2 corsie |
+
+Mira del cecchino: −4% per ogni punto di velocità del bersaglio oltre 4, −8% per ogni corsia fra il
+bersaglio e la parete del canyon. **Invisibilità**: la navetta sparisce agli altri (chi la guida vede una
+sagoma trasparente); cecchini, missili, arpione e blast non la trovano, ma lei può sganciare mine e
+sparare; le mine colpiscono anche chi è invisibile.
 
 Il resto è Snow Tails: carte 1-5, motori a 3 all'inizio, curve con limite, bordi, tamponamenti,
-massi, dune e crepacci, salto della gola, 5 danni = navetta distrutta. Nei segmenti fanmade il vento
-diventa **tempesta di sabbia**, la neve fresca **sabbia**, il ghiaccio **vetro** e la baita un'**officina**.
+massi, dune e crepacci, salto della gola. Nei segmenti fanmade il vento diventa **tempesta di sabbia**,
+la neve fresca **sabbia**, il ghiaccio **vetro** e la baita un'**officina**.
+
+## Navette
+I modelli sono i 5 GLB fatti con Meshy (`Desktop/Ludoteca/Ion Tails`), ridotti a 30.000 triangoli con
+texture 1024 e raddrizzati (`tools/navette_glb.py`): `assets/models/ship_<colore>.glb`, con le posizioni
+degli ugelli in `ships.json`. La fiamma dietro ogni motore segue la carta giocata su quel motore: corta
+con l'1, lunga e intensa con il 5. Nel replay si rivedono tutti gli effetti dei gadget.
 
 ### Dove sta nel codice
 - `scripts/game.gd`, sezione «Ion Tails: punti gadget»: scorta (`budget_for`), scelta (`apply_alloc`),

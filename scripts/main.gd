@@ -969,7 +969,7 @@ func _menu_rebuild_players() -> void:
 		if i >= _menu_thumbs.size() or not is_instance_valid(_menu_thumbs[i]):
 			if i >= _menu_thumbs.size():
 				_menu_thumbs.resize(i + 1)
-			_menu_thumbs[i] = SledThumb.new(SledGame.COLORS[i])
+			_menu_thumbs[i] = SledThumb.new(SledGame.COLORS[i], 220, 62, i)
 		var th: SledThumb = _menu_thumbs[i]
 		th.set_active(on)
 		th.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1094,22 +1094,25 @@ func show_help(force_fan := false) -> void:
 	c1.add_child(UIKit.heading("Punti gadget"))
 	c1.add_child(_rule_text("""[b]La scorta.[/b] A inizio gara ogni navetta riceve una scorta di punti che dipende dalla lunghezza della pista (un punto ogni %d passi dalla partenza al traguardo): non se ne ricevono altri. Ogni punto speso è perso.
 
-[b]La scelta segreta.[/b] All'inizio di ogni turno, prima di muovere, ognuno decide in segreto quanti punti investire (da 0 a 3 per gadget) in attacchi, difese e movimento, entro il tempo scelto nel menu (allo scadere vale la scelta fatta fin lì). Poi si muove come al solito; i gadget si scoprono quando agiscono.
+[b]La scelta segreta.[/b] All'inizio di ogni turno, prima di muovere, ognuno decide in segreto quali gadget usare, con 1 o 2 punti ciascuno, in attacchi, difese e movimento, entro il tempo scelto nel menu (allo scadere vale la scelta fatta fin lì). Poi si muove come al solito; i gadget si scoprono quando agiscono.
 
 [b]Attacchi[/b]
-[b]Cecchino.[/b] Scegli un bersaglio: quando finisce la sua mossa il cecchino spara dal canyon. Mira = 30%% + 20%% per punto, −4%% per ogni punto di velocità del bersaglio oltre 4, −8%% per ogni corsia fra il bersaglio e la parete più vicina, −30%% per ogni punto di scudo. Colpo a segno: 1 danno.
-[b]Mine.[/b] Una mina per punto, sulle caselle che ti lasci dietro durante la mossa. Chi ci passa sopra prende 1 danno (tu no). Le mine restano finché qualcuno non ci passa.
-[b]Missile.[/b] A fine mossa spari un missile guidato dritto davanti, nella tua corsia: gittata 3 caselle più 2 per punto. Colpisce la prima navetta che incontra: 1 danno.
+[b]Cecchino.[/b] Scegli un bersaglio: quando finisce la sua mossa il cecchino spara dal canyon. Mira = 55%% con 1 punto, 80%% con 2; −4%% per ogni punto di velocità del bersaglio oltre 4, −8%% per ogni corsia fra il bersaglio e la parete più vicina, −40%% per ogni punto di scudo. Colpo a segno: mezzo danno.
+[b]Mine.[/b] Una mina (1 punto) o due (2 punti) sulle caselle che ti lasci dietro durante la mossa. Chi ci passa sopra prende mezzo danno (tu no). Restano finché qualcuno non ci passa.
+[b]Missile.[/b] A fine mossa spari un missile guidato dritto davanti, nella tua corsia: gittata 7 caselle (1 punto) o 10 (2 punti). Colpisce la prima navetta visibile che incontra: mezzo danno.
 
 [b]Difese[/b]
-[b]Scudo.[/b] Ogni punto toglie il 30%% alla mira dei cecchini, ma ferma i missili (che arrivano da dietro) solo il 15%% delle volte per punto.
-[b]Radar.[/b] Vedi le mine del settore (la tessera) in cui sei con 1 punto, anche del seguente con 2, dei due seguenti con 3. La rotta le evita quando può.
-[b]CME.[/b] Contromisure contro i missili: con 1 punto il missile cambia corsia una volta su due, con 2 cambia sempre corsia (e può colpire un'altra navetta), con 3 esplode.
+[b]Scudo.[/b] Toglie il 40%% (1 punto) o l'80%% (2 punti) alla mira dei cecchini, ma ferma i missili (che arrivano da dietro) solo il 20%% o il 40%% delle volte.
+[b]Radar.[/b] Vedi le mine del settore (la tessera) in cui sei e del seguente con 1 punto, anche dei due seguenti con 2. La rotta le evita quando può.
+[b]CME.[/b] Contromisure contro i missili: con 1 punto il missile cambia corsia (e può colpire un'altra navetta), con 2 esplode.
+[b]Invisibilità.[/b] Con 1 punto sparisci alla vista degli altri per questo turno, con 2 anche per il seguente: cecchini, missili, arpione e blast non ti trovano, ma tu puoi sganciare mine e sparare. Le mine colpiscono anche chi è invisibile.
+
+[b]Mezzi danni.[/b] Tutti i gadget fanno mezzo danno: ne servono due per un danno intero.
 
 [b]Movimento[/b]
-[b]Postbruciatore.[/b] +1 velocità per punto in questa mossa (conta anche per i limiti delle curve).
-[b]Arpione.[/b] La navetta più vicina davanti a te (fino a %d passi) ha −1 velocità per punto in questo turno.
-[b]Blast ionico.[/b] A fine mossa spinge di lato la navetta più vicina davanti a te (fino a 3 passi) di una corsia per punto, verso il bordo più vicino: se ci sbatte prende 1 danno.""" % [int(SledGame.BUDGET_DIV), SledGame.HOOK_RANGE]))
+[b]Postbruciatore.[/b] +1 (1 punto) o +2 (2 punti) alla velocità di questa mossa: conta anche per i limiti delle curve.
+[b]Arpione.[/b] La navetta più vicina davanti a te (fino a %d passi) ha −1 (1 punto) o −2 (2 punti) alla velocità in questo turno.
+[b]Blast ionico.[/b] A fine mossa spinge di lato la navetta più vicina davanti a te (fino a 3 passi) di una corsia (1 punto) o due (2 punti), verso il bordo più vicino: se ci sbatte prende mezzo danno.""" % [int(SledGame.BUDGET_DIV), SledGame.HOOK_RANGE]))
 	c1.add_child(UIKit.heading("Varianti"))
 	c1.add_child(_rule_text("""[b]Simultaneo.[/b] Tutti programmano la mossa (carte e casella d'arrivo) senza vedere quella degli altri, poi le navette partono insieme: chi ha più caselle da fare va più veloce. Due navette non entrano mai nella stessa casella nello stesso momento: se possono la evitano, altrimenti entra la più veloce (a parità, chi era più avanti) e l'altra si ferma prima con mezzo danno.
 
@@ -1671,7 +1674,9 @@ func _apply_choice(pend: Array, o: Dictionary) -> void:
 	if _play_fx(game.last_fx):
 		await _pause(0.45)
 	var need_discard := game.after_move(p, o)
-	game.record(p, start_cell, o["path"], o.get("sap", []))
+	game.record(p, start_cell, o["path"], o.get("sap", []), o.get("gfx", []))
+	if game.invisible(p) and _viewer() != p:
+		game.log_text = "[b]%s[/b] è invisibile: si muove senza farsi vedere." % p.name
 	await _play_gadget_fx(o.get("gfx", []))
 	if need_discard:
 		var ctl := await _ctl(p)
@@ -1800,13 +1805,18 @@ func start_replay() -> void:
 	# stato finale da ripristinare alla fine
 	var final := {}
 	for p in game.players:
-		final[p.id] = {"cell": p.cell, "dents": p.dents, "wrecked": p.wrecked}
+		final[p.id] = {"cell": p.cell, "dents": p.dents, "wrecked": p.wrecked, "half": p.half, "L": p.L, "R": p.R}
+	var replay_mines := {}
 	var final_saps: Dictionary = game.saplings.duplicate()
 	# stato iniziale
 	for p in game.players:
 		p.cell = game.start_record.get(p.id, p.cell)
 		p.dents = 0
 		p.wrecked = false
+		p.half = false
+		p.L = 3
+		p.R = 3
+	board.mine_cells = []
 	game.saplings = game.initial_saplings.duplicate()
 	var final_snow: Dictionary = game.fresh.duplicate()
 	game.fresh = game.initial_fresh.duplicate()
@@ -1888,11 +1898,43 @@ func start_replay() -> void:
 				if k > 0:
 					dv = (course.cells[sp]["pos"] - course.cells[pth[k - 1]]["pos"]).normalized()
 				board.knock_sapling(int(sp), dv)
+		# effetti dei gadget del turno: laser, missili, mine, blast, arpione
+		var any_gfx := false
+		for mv in moves:
+			var p = game.players[mv["pid"]]
+			p.L = int(mv.get("L", p.L))
+			p.R = int(mv.get("R", p.R))
+			for g in mv.get("gfx", []):
+				any_gfx = true
+				match String(g.get("k", "")):
+					"laser":
+						board.laser_fx(int(g["pid"]), String(g["res"]))
+					"mine":
+						replay_mines.erase(int(g["cell"]))
+						board.explosion_fx(int(g["cell"]))
+					"drop":
+						replay_mines[int(g["cell"])] = true
+					"missile":
+						board.missile_fx(g.get("cells", []), String(g.get("res", "")), int(g.get("pid", -1)))
+					"blast":
+						board.blast_fx(int(g["pid"]), int(g["to"]))
+					"hook":
+						board.hook_fx(int(g["pid"]), int(g["to"]))
+					"boost":
+						board.boost_fx(int(g["pid"]))
+		board.mine_cells = replay_mines.keys()
+		if any_gfx and not replay_stop:
+			var wt := 0.0
+			while wt < 0.9 and not replay_stop:
+				await get_tree().process_frame
+				if not replay_paused:
+					wt += get_process_delta_time() * replay_speed
 		for mv in moves:
 			var p = game.players[mv["pid"]]
 			p.cell = mv["end"] if not mv["wrecked"] else -1
 			p.dents = mv["dents"]
 			p.wrecked = mv["wrecked"]
+			p.half = bool(mv.get("half", false))
 			for sp in mv["sap"]:
 				game.saplings.erase(sp)
 		# il tempo avanzato oltre la fine del giro passa al giro successivo: nessuno scatto
@@ -1906,10 +1948,14 @@ func start_replay() -> void:
 		p.cell = final[p.id]["cell"]
 		p.dents = final[p.id]["dents"]
 		p.wrecked = final[p.id]["wrecked"]
+		p.half = final[p.id]["half"]
+		p.L = final[p.id]["L"]
+		p.R = final[p.id]["R"]
 	game.saplings = final_saps
 	game.fresh = final_snow
 	board.reset_snow()
 	board.replay.clear()
+	_sync_gadget_view()
 	board.redraw()
 	_show_results()
 
@@ -2301,7 +2347,7 @@ func _sim_resolve(my: int) -> void:
 			x["o"]["from"] = x["start"]
 		if game.after_move(x["p"], x["o"]):
 			need.append(x["p"])
-		game.record(x["p"], x["start"], x["o"]["path"], x["o"].get("sap", []))
+		game.record(x["p"], x["start"], x["o"]["path"], x["o"].get("sap", []), x["o"].get("gfx", []))
 		lines[i] += game.log_text
 		await _play_gadget_fx(x["o"].get("gfx", []))
 	game.log_text = "  ·  ".join(lines)
@@ -2576,7 +2622,9 @@ func _render_top() -> void:
 		pc.add_theme_stylebox_override("panel", UIKit.box(UIKit.SOFT, 9, border, 2, 3))
 		pc.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		var t: String = ("KO " if p.wrecked else str(order.find(p) + 1) + " ") + p.name
-		if p.dents > 0:
+		if game.invisible(p) and _viewer() != p:
+			t = "? " + p.name + "  invisibile"
+		elif p.dents > 0:
 			t += "  D%d" % p.dents
 		if p.half:
 			t += "½" if p.dents > 0 else "  D½"
@@ -2783,7 +2831,7 @@ func _action_text() -> String:
 			if not online.is_empty():
 				if _posting_prog:
 					return "Invio la tua mossa…"
-				return "Si aspettano le scelte di tutti…" if _in_energy else "Si aspettano le mosse di tutti: quando ognuno ha programmato, le navette partono insieme."
+				return _energy_wait_text() if _in_energy else "Si aspettano le mosse di tutti: quando ognuno ha programmato, le navette partono insieme."
 		"replay":
 			return "Replay: le navette si muovono insieme."
 		"energy":
@@ -3640,17 +3688,20 @@ func _energy_panel() -> VBoxContainer:
 		_en_clock_lbl.text = "%d s" % max(0, int(ceil((en_deadline - Time.get_ticks_msec()) / 1000.0)))
 	head.add_child(_en_clock_lbl)
 	v.add_child(head)
+	# schermi bassi (telefono in orizzontale): via intestazioni e spiegazione, restano i pulsanti
+	var low: bool = _is_landscape() and get_viewport().get_visible_rect().size.y < 780
 	for cat in SledGame.CATEGORIES:
-		var ch := UIKit.heading(cat, 13)
-		v.add_child(ch)
+		if not low:
+			v.add_child(UIKit.heading(cat, 13))
 		for k in SledGame.GADGET_ORDER:
 			if String(SledGame.GADGETS[k][1]) != cat:
 				continue
 			v.add_child(_gadget_row(k, left))
 			if k == "sn" and SledGame.level(en_draft, "sn") > 0:
 				v.add_child(_sniper_targets())
-	var info := _fixed_box(en_info if en_info != "" else "Tocca il nome di un gadget per leggere che cosa fa; i numeri sono i punti da investire in questo turno.", UIKit.SOFT, UIKit.MUTED, 13)
-	v.add_child(info)
+	if not low or en_info != "":
+		var info := _fixed_box(en_info if en_info != "" else "Tocca un nome per leggere che cosa fa; 1 o 2 sono i punti (tocca di nuovo per toglierli).", UIKit.SOFT, UIKit.MUTED, 13)
+		v.add_child(info)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	var b1 := UIKit.button("Azzera")
@@ -3669,14 +3720,15 @@ func _energy_panel() -> VBoxContainer:
 	v.add_child(row)
 	return v
 
-## Riga di un gadget: nome (tocca per la spiegazione) e livelli 0-3.
+## Riga di un gadget: nome (tocca per la spiegazione) e due tasti, 1 e 2 punti. Si accende al
+## massimo uno dei due; toccando quello acceso si spegne (gadget non usato).
 func _gadget_row(k: String, left: int) -> HBoxContainer:
 	var r := HBoxContainer.new()
-	r.add_theme_constant_override("separation", 3)
+	r.add_theme_constant_override("separation", 4)
 	var nb := Button.new()
 	nb.text = SledGame.gadget_name(k)
 	nb.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	nb.custom_minimum_size = Vector2(130, 28)
+	nb.custom_minimum_size = Vector2(130, 27)
 	nb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	nb.clip_text = true
 	nb.add_theme_font_size_override("font_size", 15)
@@ -3687,31 +3739,28 @@ func _gadget_row(k: String, left: int) -> HBoxContainer:
 		_refresh())
 	r.add_child(nb)
 	var cur_lv := SledGame.level(en_draft, k)
-	for lv in range(0, SledGame.MAX_LEVEL + 1):
+	for lv in range(1, SledGame.max_level(k) + 1):
 		var b := Button.new()
 		b.text = str(lv)
-		b.custom_minimum_size = Vector2(38, 28)
+		b.custom_minimum_size = Vector2(46, 27)
 		b.add_theme_font_size_override("font_size", 15)
 		b.add_theme_font_override("font", UIKit.font(UIKit.F_BOLD))
 		var on := lv == cur_lv
 		b.disabled = not on and lv - cur_lv > left
-		if on and lv > 0:
+		if on:
 			UIKit.style_button(b, UIKit.ACCENT, UIKit.ON_ACCENT, UIKit.ACCENT, 2, 8)
-		elif on:
-			UIKit.style_button(b, UIKit.LINE, UIKit.INK, UIKit.LINE, 2, 8)
 		else:
 			UIKit.style_button(b, UIKit.SOFT, UIKit.INK, UIKit.LINE, 2, 8)
 		b.pressed.connect(func():
-			if lv == 0:
+			if on:
 				en_draft.erase(k)
 				if k == "sn":
 					en_draft.erase("snt")
 			else:
 				en_draft[k] = lv
 				if k == "sn" and not en_draft.has("snt"):
-					var ord := game.race_order()
-					for q in ord:
-						if q != cur:
+					for q in game.race_order():
+						if q != cur and not game.invisible(q):
 							en_draft["snt"] = q.id
 							break
 			en_info = "[b]%s[/b]: %s." % [SledGame.gadget_name(k), SledGame.GADGETS[k][2]]
@@ -3726,12 +3775,12 @@ func _sniper_targets() -> HFlowContainer:
 	fl.add_theme_constant_override("v_separation", 4)
 	var t := int(en_draft.get("snt", -1))
 	for q in game.race_order():
-		if q == cur:
+		if q == cur or game.invisible(q):
 			continue
 		var on: bool = q.id == t
 		var b := Button.new()
 		b.text = "su %s" % SledGame.NAMES[q.seat]
-		b.custom_minimum_size = Vector2(80, 26)
+		b.custom_minimum_size = Vector2(70, 25)
 		b.add_theme_font_size_override("font_size", 13)
 		b.add_theme_font_override("font", UIKit.font(UIKit.F_BOLD))
 		UIKit.style_button(b, q.color.darkened(0.15) if on else UIKit.SOFT, Color.WHITE if on else UIKit.INK, q.color, 2, 8)
@@ -3774,6 +3823,7 @@ func _sync_gadget_view() -> void:
 			if game.sees_mine(v, int(c)):
 				cells.append(int(c))
 	board.mine_cells = cells
+	board.viewer_id = v.id if v != null else -1
 
 ## Effetti dei gadget dopo una mossa: colpi dei cecchini, mine, fumo, EMP, arpione.
 func _play_gadget_fx(gfx: Array) -> void:
@@ -3803,3 +3853,13 @@ func _play_gadget_fx(gfx: Array) -> void:
 				await _pause(0.4)
 	_sync_gadget_view()
 	board.redraw()
+
+## Online: chi ha già scelto i gadget e chi manca.
+func _energy_wait_text() -> String:
+	var done := []
+	var miss := []
+	for p in energy_list:
+		(done if en_done.has(p.id) else miss).append(p.name)
+	if miss.is_empty():
+		return "Tutti hanno scelto: si parte!"
+	return "Scelta dei gadget in segreto. Mancano: [b]%s[/b]%s" % [", ".join(miss), ("; pronti: " + ", ".join(done)) if not done.is_empty() else ""]

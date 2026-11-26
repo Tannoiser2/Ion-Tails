@@ -6,7 +6,7 @@ var model: TeamModel
 var _vp: SubViewport
 var _cam: Camera3D
 
-func _init(team: Color, w := 220, h := 62) -> void:
+func _init(team: Color, w := 220, h := 62, seat := -1) -> void:
 	stretch = true
 	custom_minimum_size = Vector2(w, h)
 	size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -27,11 +27,11 @@ func _init(team: Color, w := 220, h := 62) -> void:
 	_vp.add_child(env)
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-50, 35, 0)
-	sun.light_energy = 1.15
+	sun.light_energy = 0.9
 	_vp.add_child(sun)
 	model = TeamModel.new()
 	_vp.add_child(model)
-	model.build(team)
+	model.build(team, seat)
 	model.run = 1.0
 	model.rotation.y = deg_to_rad(-90)   # di profilo, verso destra
 	_cam = Camera3D.new()

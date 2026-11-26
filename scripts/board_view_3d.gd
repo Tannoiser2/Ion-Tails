@@ -20,6 +20,7 @@ var hud_right := 0.0
 var replay := {}            # pid -> {pos: Vector3, dir: Vector2, run: float}
 ## Ion Tails: mine visibili a chi guarda, gadget del giro in vista (dopo la rivelazione)
 var mine_cells: Array = []
+var viewer_id := -1          # navetta di chi guarda (vede la propria anche se invisibile)
 var show_al := false
 var _nests: Array = []
 var _nest_nodes: Array = []
@@ -173,7 +174,7 @@ func setup(c: Course, g: SledGame) -> void:
 		add_child(_fx)
 	for p in g.players:
 		var tm := TeamModel.new()
-		tm.build(p.color)
+		tm.build(p.color, p.seat)
 		tm.visible = false
 		add_child(tm)
 		var lb := Label3D.new()
@@ -477,11 +478,19 @@ func _update_teams(labels_only := false) -> void:
 			node.rotation.y = -yaw_of(_heading_of(p.cell))
 			t["placed"] = true
 		node.visible = true
-		lb.visible = true
 		var rk := order.find(p) + 1
-		lb.text = str(rk) + ("  D%d" % p.dents if p.dents > 0 else "")
+		lb.text = str(rk) + (("  D%d" % p.dents) + ("½" if p.half else "") if p.dents > 0 else ("  D½" if p.half else ""))
 		ring.visible = p.id == current_id
 		node.set_shield(show_al and p.al.has("sh"))
+		node.set_thrust(p.L, p.R)
+		# invisibilità: sparisce per gli altri, chi la guida vede una sagoma trasparente
+		var hid := 0
+		if replay.is_empty() and game.invisible(p):
+			hid = 2 if p.id == viewer_id else 1
+		node.set_hidden(hid)
+		lb.visible = hid != 1
+		if hid == 1:
+			ring.visible = false
 
 # ---------- effetti: nuvole di neve, massi abbattuti, urti ----------
 static func _puff_material() -> StandardMaterial3D:

@@ -20,6 +20,16 @@ var _shield: MeshInstance3D = null
 var _shield_mat: StandardMaterial3D = null
 var shield_on := false
 var team_color := Color.WHITE
+var _glb: Node3D = null           # modello di Meshy (se c'è)
+var _thrust := [3, 3]             # carte sui motori sinistro e destro (fiamme)
+var _flame_len := [0.6, 0.6]
+var _flame_cores: Array = []
+var _flame_mats: Array = []
+var hidden_mode := 0              # 0 visibile, 1 nascosta (invisibile agli altri), 2 sagoma per chi la guida
+
+const KEYS := ["red", "blue", "yellow", "green", "black"]
+const LEN := 0.82                 # lunghezza della navetta di Meshy
+static var _ships_info := {}
 
 const HOVER := 0.11
 const ENG_X := 0.125
@@ -95,12 +105,18 @@ static func cyl(r_top: float, r_bot: float, h: float, seg := 8) -> CylinderMesh:
 	c.radial_segments = seg
 	return c
 
-func build(team: Color) -> void:
+## Navetta del posto seat: il modello GLB se c'è, altrimenti quella costruita in codice.
+func build(team: Color, seat := -1) -> void:
 	team_color = team
 	_phase = randf() * TAU
 	_rig = Node3D.new()
 	add_child(_rig)
 	_rig.position.y = HOVER
+	if seat >= 0 and seat < KEYS.size():
+		var path := "res://assets/models/ship_%s.glb" % KEYS[seat]
+		if ResourceLoader.exists(path):
+			_build_glb(path)
+			return
 	var hull := metal(Color("8d99a8"))
 	var dark := metal(Color("2b323d"), 0.6)
 	var paint := metal(team.darkened(0.05), 0.4)
@@ -148,7 +164,56 @@ func build(team: Color) -> void:
 	_shield = _part(sph(0.5), _shield_mat, Vector3(0, 0.02, 0.0), Vector3.ZERO, _rig)
 	_shield.scale = Vector3(0.55, 0.35, 0.95)
 	_shield.visible = false
-	_update_cables()
+	if not _cables.is_empty():
+		_update_cables()
+
+func _build_glb(path: String) -> void:
+	var ps: PackedScene = load(path)
+	_glb = ps.instantiate()
+	_glb.scale = Vector3.ONE * LEN
+	_glb.position.y = -0.04
+	_rig.add_child(_glb)
+	if _ships_info.is_empty() and FileAccess.file_exists("res://assets/models/ships.json"):
+		_ships_info = JSON.parse_string(FileAccess.get_file_as_string("res://assets/models/ships.json"))
+	var info: Dictionary = _ships_info.get(path.get_file(), {})
+	for i in 2:
+		var side := "L" if i == 0 else "R"
+		var d: Array = info.get(side, [(-0.13 if i == 0 else 0.13), 0.13, -0.1, 0.1])
+		# ugello dietro il motore: coordinate del modello (lunghezza 1) scalate
+		var rz: float = min(float(d[2]), -0.08)
+		var pos := Vector3(float(d[0]), float(d[1]) - 0.04 / LEN, rz) * LEN
+		var r: float = clamp(float(d[3]) * LEN * 0.32, 0.018, 0.045)
+		var e := Node3D.new()
+		e.position = pos
+		_rig.add_child(e)
+		var outer := _part(cyl(0.0, r, 0.3, 14), glow(Color("3fa8ff"), 1.0, 0.38), Vector3(0, 0, 0.15), Vector3(PI / 2, 0, 0), e)
+		var core := _part(cyl(0.0, r * 0.45, 0.2, 10), glow(Color("b8f2ff"), 1.2, 0.55), Vector3(0, 0, 0.1), Vector3(PI / 2, 0, 0), e)
+		_flames.append(outer)
+		_flame_cores.append(core)
+		_flame_mats.append(outer.material_override)
+		_engines.append([e, randf() * TAU])
+	_shield_mat = glow(Color("58d8ff"), 0.7, 0.18)
+	_shield = _part(sph(0.5), _shield_mat, Vector3(0, 0.08, 0.0), Vector3.ZERO, _rig)
+	_shield.scale = Vector3(0.8, 0.45, 1.15)
+	_shield.visible = false
+
+## Carte sui motori: fiamma corta con l'1, lunga e intensa con il 5.
+func set_thrust(l: int, r: int) -> void:
+	_thrust = [clampi(l, 0, 5), clampi(r, 0, 5)]
+
+## Invisibilità: 0 visibile, 1 nascosta, 2 sagoma trasparente (per chi la guida).
+func set_hidden(mode: int) -> void:
+	if mode == hidden_mode:
+		return
+	hidden_mode = mode
+	_rig.visible = mode != 1
+	_apply_transp(_rig, 0.75 if mode == 2 else 0.0)
+
+func _apply_transp(n: Node, t: float) -> void:
+	for c in n.get_children():
+		if c is GeometryInstance3D:
+			(c as GeometryInstance3D).transparency = t
+		_apply_transp(c, t)
 
 func set_shield(on: bool) -> void:
 	shield_on = on
@@ -191,19 +256,35 @@ func _process(delta: float) -> void:
 	else:
 		_rig.rotation.z = sin(_t * 1.7 + _phase) * 0.02
 		_rig.rotation.y = 0.0
-	for e in _engines:
-		var n: Node3D = e[0]
-		n.position.y = sin(_t * 3.1 + float(e[1])) * 0.008
-		n.rotation.z = sin(_t * 2.0 + float(e[1])) * 0.03
-	var fl_len := 0.35 + 0.65 * run
-	for f in _flames:
-		var fm: MeshInstance3D = f
-		var flick := 0.9 + 0.1 * sin(_t * 40.0 + fm.get_instance_id())
-		fm.scale = Vector3(1.0, fl_len * flick, 1.0)
-		fm.position.z = 0.205 + 0.11 * fl_len * flick
-	if _arc_mat:
+	if _glb == null:
+		for e in _engines:
+			var n: Node3D = e[0]
+			n.position.y = sin(_t * 3.1 + float(e[1])) * 0.008
+			n.rotation.z = sin(_t * 2.0 + float(e[1])) * 0.03
+	for i in _flames.size():
+		var fm: MeshInstance3D = _flames[i]
+		var v: float = float(_thrust[i % 2])
+		# lunghezza: 1 = fiammella, 5 = getto lungo; in corsa si allunga un po'
+		var goal: float = (0.1 + 0.36 * v) * (0.8 + 0.3 * run)
+		_flame_len[i % 2] = lerp(float(_flame_len[i % 2]), goal, min(1.0, delta * 4.0))
+		var fl: float = _flame_len[i % 2]
+		var flick := 0.88 + 0.12 * sin(_t * (35.0 + v * 4.0) + fm.get_instance_id())
+		var w: float = 0.6 + 0.1 * v
+		fm.scale = Vector3(w, fl * flick, w)
+		if _glb != null:
+			fm.position.z = 0.15 * fl * flick
+			if i < _flame_cores.size():
+				var core: MeshInstance3D = _flame_cores[i]
+				core.scale = Vector3(w, fl * flick * 0.8, w)
+				core.position.z = 0.1 * fl * flick * 0.8
+			if i < _flame_mats.size():
+				(_flame_mats[i] as StandardMaterial3D).emission_energy_multiplier = 0.5 + 0.3 * v
+		else:
+			fm.position.z = 0.205 + 0.11 * fl * flick
+	if _arc_mat and _arc:
 		_arc_mat.emission_energy_multiplier = 1.1 + 0.6 * abs(sin(_t * 23.0)) + run * 0.4
 		_arc.position.y = sin(_t * 31.0) * 0.004
 	if _shield and _shield.visible:
 		_shield_mat.albedo_color.a = 0.14 + 0.05 * sin(_t * 4.0)
-	_update_cables()
+	if not _cables.is_empty():
+		_update_cables()

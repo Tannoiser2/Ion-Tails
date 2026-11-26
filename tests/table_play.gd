@@ -82,9 +82,13 @@ func _run() -> void:
 			"discard":
 				acted = key
 				main._do_act({"k": "disc", "v": main.game.ai_discard_values(main.cur)})
+			"energy":
+				acted = key
+				main.en_draft = main.game.ai_alloc(main.cur)
+				main._energy_confirm()
 	await _wait(0.5)
 	var fp := []
 	for p in main.game.players:
-		fp.append("%s:%d:%d:%s:%d:%s" % [p.name, p.cell, p.dents, p.wrecked, p.finish_round, str(p.hand)])
+		fp.append("%s:%d:%d%s:%s:%d:%s:e%d" % [p.name, p.cell, p.dents, "h" if p.half else "", p.wrecked, p.finish_round, str(p.hand), p.energy])
 	print("STTEST impronta ", main.online.get("n"), " giri ", main.game.round_n, " sim ", main.game.simultaneous, " | ", " | ".join(fp))
 	quit(0)

@@ -15,7 +15,7 @@ func _init() -> void:
 		var f := FileAccess.open(cf, FileAccess.WRITE)
 		f.store_string(main.online["code"])
 		f.close()
-		await create_timer(5.0).timeout
+		await create_timer(12.0).timeout
 		root.get_texture().get_image().save_png("/tmp/shots/tb_lobby.png")
 		if OS.get_environment("ST_LOBBY_ONLY") == "1":
 			quit()
@@ -24,6 +24,9 @@ func _init() -> void:
 		var shot := false
 		while main.game == null or main.game.round_n < 3:
 			await create_timer(0.3).timeout
+			if main.game and main.game.round_n == 1 and main._in_energy and not FileAccess.file_exists("/tmp/shots/tb_energy.png"):
+				await create_timer(0.6).timeout
+				root.get_texture().get_image().save_png("/tmp/shots/tb_energy.png")
 			if main.game and main.game.round_n == 2 and main.phase == "simwait" and not shot:
 				await create_timer(0.6).timeout
 				root.get_texture().get_image().save_png("/tmp/shots/tb_wait.png")
@@ -64,5 +67,14 @@ func _init() -> void:
 				await create_timer(0.5).timeout
 			elif main.phase == "discard":
 				main._do_act({"k": "disc", "v": main.game.ai_discard_values(main.cur)})
+				await create_timer(0.5).timeout
+			elif main.phase == "energy":
+				if not FileAccess.file_exists("/tmp/shots/ph_energy.png"):
+					main.en_draft = {"sn": 1, "snt": main.game.players[1].id, "iv": 2}
+					main._refresh()
+					await create_timer(0.8).timeout
+					root.get_texture().get_image().save_png("/tmp/shots/ph_energy.png")
+				main.en_draft = main.game.ai_alloc(main.cur)
+				main._energy_confirm()
 				await create_timer(0.5).timeout
 	quit()

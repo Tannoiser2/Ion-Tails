@@ -42,7 +42,7 @@ func _run() -> void:
 	await until(["energy"])
 	await wait(1.0)
 	await shot("03_energy")
-	main.en_draft = {"mi": 1, "bo": 1, "sn": 2, "snt": main.game.players[1].id}
+	main.en_draft = {"mi": 1, "bo": 2, "sn": 2, "snt": main.game.players[1].id}
 	main._refresh()
 	await wait(0.3)
 	await shot("04_energy_sel")
@@ -75,6 +75,10 @@ func _run() -> void:
 		var fw: Array = main.course.cells[p.cell]["fwd"]
 		if not fw.is_empty(): mc.append(fw[0])
 	main.board.mine_cells = mc
+	var vv := [1, 5, 2, 4, 3]
+	for i in main.game.players.size():
+		main.game.players[i].L = vv[i]
+		main.game.players[i].R = vv[(i + 2) % 5]
 	main.board.redraw()
 	main.board.dist_goal = 3.0
 	main.board.target_goal = BoardView3D.to3(main.course.cells[mc[0]]["pos"])
@@ -82,4 +86,9 @@ func _run() -> void:
 	main.board.emp_fx(main.game.players[1].cell)
 	await wait(1.4)
 	await shot("10_mines")
+	main.board.dist_goal = 2.2
+	main.board.pitch = deg_to_rad(18)
+	main.board.yaw_goal = main.board.yaw + 1.5
+	await wait(1.5)
+	await shot("11_side")
 	quit()

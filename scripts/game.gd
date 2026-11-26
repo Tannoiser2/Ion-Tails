@@ -35,6 +35,7 @@ class Player:
 	var al := {}               # punti investiti nel turno: chiave di GADGETS -> livello; "snt" = bersaglio del cecchino
 	var drag := 0              # rallentamento da arpione in questo turno
 	var spent := 0             # punti spesi in tutta la gara (statistica)
+	var invis_until := 0       # invisibile fino a questo turno compreso (0 = mai)
 
 var course: Course
 var players: Array = []
@@ -66,21 +67,24 @@ var simultaneous := false
 ## lunghezza della pista (BUDGET_DIV passi per punto). A ogni turno ognuno decide in segreto
 ## quanti punti investire (da 0 a MAX_LEVEL) in attacchi, difese e movimento.
 var energy_on := true
-const BUDGET_DIV := 5.0
-const MAX_LEVEL := 3
+const BUDGET_DIV := 4.0
+const MAX_LEVEL := 2
 ## chiave -> [nome, categoria, descrizione per livello]
 const GADGETS := {
-	"sn": ["Cecchino", "Attacchi", "spara alla navetta scelta quando finisce la mossa: più punti, più precisione; sbaglia più spesso se il bersaglio va veloce o sta lontano dalle pareti"],
-	"mi": ["Mine", "Attacchi", "una mina per punto, sulle caselle che ti lasci dietro: chi ci passa prende 1 danno"],
-	"ms": ["Missile", "Attacchi", "a fine mossa spara dritto davanti nella tua corsia; gittata 3 caselle più 2 per punto"],
-	"sh": ["Scudo", "Difese", "ogni punto toglie il 30% alla mira dei cecchini, ma solo il 15% ai missili che arrivano da dietro"],
-	"ra": ["Radar", "Difese", "rivela le mine del settore in cui sei (1 punto), anche del seguente (2), dei due seguenti (3)"],
-	"cm": ["CME", "Difese", "contromisure: con 1 punto il missile cambia corsia una volta su due, con 2 cambia sempre corsia, con 3 esplode"],
-	"bo": ["Postbruciatore", "Movimento", "+1 velocità per punto in questa mossa (conta anche per i limiti delle curve)"],
-	"ho": ["Arpione", "Movimento", "la navetta più vicina davanti a te (fino a 6 passi) ha −1 velocità per punto in questo turno"],
-	"bl": ["Blast ionico", "Movimento", "a fine mossa spinge di lato la navetta più vicina davanti (fino a 3 passi) di una corsia per punto, verso il bordo"],
+	"sn": ["Cecchino", "Attacchi", "spara alla navetta scelta quando finisce la mossa (mira 55% con 1 punto, 80% con 2); sbaglia più spesso se il bersaglio va veloce o sta lontano dalle pareti. Mezzo danno"],
+	"mi": ["Mine", "Attacchi", "una mina (1 punto) o due (2 punti) sulle caselle che ti lasci dietro: chi ci passa prende mezzo danno"],
+	"ms": ["Missile", "Attacchi", "a fine mossa spara dritto davanti nella tua corsia: gittata 7 caselle (1 punto) o 10 (2 punti). Mezzo danno"],
+	"sh": ["Scudo", "Difese", "toglie il 40% (1 punto) o l'80% (2 punti) alla mira dei cecchini, ma ferma i missili da dietro solo il 20% o il 40% delle volte"],
+	"ra": ["Radar", "Difese", "rivela le mine del settore in cui sei e del seguente (1 punto) o dei due seguenti (2 punti)"],
+	"cm": ["CME", "Difese", "contromisure contro i missili: con 1 punto il missile cambia corsia, con 2 esplode"],
+	"iv": ["Invisibilità", "Difese", "sparisci alla vista degli altri per 1 turno (1 punto) o 2 turni (2 punti): cecchini, missili, arpione e blast non ti trovano, ma tu puoi continuare a sganciare mine e sparare"],
+	"bo": ["Postbruciatore", "Movimento", "+1 (1 punto) o +2 (2 punti) alla velocità di questa mossa; conta anche per i limiti delle curve"],
+	"ho": ["Arpione", "Movimento", "la navetta più vicina davanti a te (fino a 6 passi) ha −1 (1 punto) o −2 (2 punti) alla velocità in questo turno"],
+	"bl": ["Blast ionico", "Movimento", "a fine mossa spinge di lato la navetta più vicina davanti (fino a 3 passi) di una corsia (1 punto) o due (2 punti), verso il bordo; se ci sbatte, mezzo danno"],
 }
-const GADGET_ORDER := ["sn", "mi", "ms", "sh", "ra", "cm", "bo", "ho", "bl"]
+const GADGET_ORDER := ["sn", "mi", "ms", "sh", "ra", "cm", "iv", "bo", "ho", "bl"]
+## Livello massimo diverso da MAX_LEVEL
+const LEVEL_CAP := {}
 const CATEGORIES := ["Attacchi", "Difese", "Movimento"]
 var mines := {}            # casella -> id della navetta che l'ha sganciata
 var smoke := {}            # (non più usato: resta per compatibilità con l'interfaccia)
@@ -654,6 +658,9 @@ func after_move(p: Player, o: Dictionary) -> bool:
 		add_dent(p, o["dents"])
 	if o.get("half", false) and not p.wrecked:
 		add_half_dent(p)
+	for i in int(o.get("ghalf", 0)):
+		if not p.wrecked:
+			add_half_dent(p)
 	if p.wrecked:
 		msgs.append("la navetta va in pezzi!")
 	elif is_finished(p) and p.finish_round == 0:
@@ -695,13 +702,14 @@ func _leap_part(o: Dictionary) -> int:
 	return d
 
 ## Registra la mossa appena fatta (chiamata dopo after_move).
-func record(p: Player, start_cell: int, path: Array, sap: Array) -> void:
+func record(p: Player, start_cell: int, path: Array, sap: Array, gfx: Array = []) -> void:
 	while history.size() < round_n:
 		history.append([])
 	var full := [start_cell]
 	full.append_array(path)
 	history[round_n - 1].append({"pid": p.id, "path": full, "dents": p.dents, "wrecked": p.wrecked,
-		"end": p.cell, "sap": sap.duplicate(), "snow": last_snow.duplicate(), "fx": last_fx.duplicate()})
+		"end": p.cell, "sap": sap.duplicate(), "snow": last_snow.duplicate(), "fx": last_fx.duplicate(),
+		"gfx": gfx.duplicate(true), "half": p.half, "L": p.L, "R": p.R})
 	last_snow = []
 	last_fx = {}
 
@@ -974,7 +982,14 @@ static func gadget_name(k: String) -> String:
 	return String(GADGETS[k][0])
 
 static func level(a: Dictionary, k: String) -> int:
-	return clampi(int(a.get(k, 0)), 0, MAX_LEVEL)
+	return clampi(int(a.get(k, 0)), 0, max_level(k))
+
+static func max_level(k: String) -> int:
+	return int(LEVEL_CAP.get(k, MAX_LEVEL))
+
+## Navetta invisibile agli altri in questo turno.
+func invisible(p: Player) -> bool:
+	return p.invis_until >= round_n and not p.wrecked
 
 ## Punti richiesti da una scelta.
 static func alloc_cost(a: Dictionary) -> int:
@@ -1013,10 +1028,12 @@ func apply_alloc(p: Player, a: Dictionary) -> void:
 	var c := alloc_cost(clean)
 	p.energy -= c
 	p.spent += c
+	if clean.has("iv"):
+		p.invis_until = max(p.invis_until, round_n + int(clean["iv"]) - 1)
 	if clean.has("ra") and p.cell >= 0:
 		var pc := int(cell(p.cell)["piece"])
 		clean["ra0"] = pc
-		clean["ra1"] = pc + int(clean["ra"]) - 1
+		clean["ra1"] = pc + int(clean["ra"])
 	p.al = clean
 
 ## Dopo le scelte di tutti: l'arpione rallenta subito il bersaglio per questo turno.
@@ -1049,7 +1066,7 @@ func _ahead(p: Player, from_cell: int, rng_max: int) -> Player:
 	var best: Player = null
 	var bd := 999
 	for q in _on_track(p):
-		if q.finish_round != 0:
+		if q.finish_round != 0 or invisible(q):
 			continue
 		var d: int = my_togo - int(cell(q.cell)["togo"])
 		if d >= 0 and d <= rng_max and d < bd and q.cell != from_cell:
@@ -1095,7 +1112,7 @@ func edge_info(cell_id: int) -> Array:
 ## Probabilità che il cecchino colpisca: precisione dai punti, meno per la velocità del
 ## bersaglio e per la distanza dalle pareti del canyon, meno lo scudo.
 func sniper_chance(lv: int, speed: int, lanes_from_edge: int, shield: int) -> float:
-	var p: float = 0.3 + 0.2 * lv - 0.04 * max(0, speed - 4) - 0.08 * lanes_from_edge - 0.3 * shield
+	var p: float = 0.3 + 0.25 * lv - 0.04 * max(0, speed - 4) - 0.08 * lanes_from_edge - 0.4 * shield
 	return clamp(p, 0.0, 0.95)
 
 ## Casella davanti nella stessa corsia (la più dritta) o -1.
@@ -1123,6 +1140,9 @@ func _missile(p: Player, from_cell: int, range_n: int, msgs: Array) -> Dictionar
 	for q in _on_track(p):
 		if q.finish_round == 0:
 			occ[q.cell] = q
+	for q in occ.values():
+		if invisible(q):
+			occ.erase(q.cell)
 	var deflected := 0
 	while left > 0:
 		var n := _straight(c)
@@ -1135,10 +1155,10 @@ func _missile(p: Player, from_cell: int, range_n: int, msgs: Array) -> Dictionar
 		while occ.has(c):
 			var q: Player = occ[c]
 			var cm := level(q.al, "cm")
-			if cm >= 3:
+			if cm >= 2:
 				msgs.append("le CME di %s fanno esplodere il missile" % q.name)
 				return {"cells": cells, "res": "boom", "pid": q.id}
-			if (cm == 2 or (cm == 1 and rng.randf() < 0.5)) and deflected < 2:
+			if cm == 1 and deflected < 2:
 				deflected += 1
 				var side := "side_l" if rng.randf() < 0.5 else "side_r"
 				var s2 := int(cell(c).get(side, -1))
@@ -1152,11 +1172,11 @@ func _missile(p: Player, from_cell: int, range_n: int, msgs: Array) -> Dictionar
 				cells.append(c)
 				continue
 			var sh := level(q.al, "sh")
-			if sh > 0 and rng.randf() < 0.15 * sh:
+			if sh > 0 and rng.randf() < 0.2 * sh:
 				msgs.append("lo scudo di %s regge al missile" % q.name)
 				return {"cells": cells, "res": "shield", "pid": q.id}
-			add_dent(q, 1)
-			msgs.append("il missile colpisce %s (+1 a lei)%s" % [q.name, ": va in pezzi!" if q.wrecked else ""])
+			add_half_dent(q)
+			msgs.append("il missile colpisce %s (mezzo danno)%s" % [q.name, ": va in pezzi!" if q.wrecked else ""])
 			return {"cells": cells, "res": "hit", "pid": q.id}
 	msgs.append("il missile si perde nel canyon")
 	return {"cells": cells, "res": "miss"}
@@ -1175,7 +1195,7 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 	var end: int = int(o["end"])
 	if not path.is_empty():
 		p.cell = end
-	var extra := 0
+	var halves := 0          # i gadget fanno mezzi danni (due mezzi = un danno)
 	var bo := level(p.al, "bo")
 	if bo > 0 and not path.is_empty():
 		msgs.append("postbruciatore (+%d)" % bo)
@@ -1189,8 +1209,8 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 			boom.append(t)
 			mines.erase(t)
 	if not boom.is_empty():
-		extra += boom.size()
-		msgs.append("%s (+%d)" % ["salta su una mina" if boom.size() == 1 else "salta su %d mine" % boom.size(), boom.size()])
+		halves += boom.size()
+		msgs.append("%s (%s)" % ["salta su una mina" if boom.size() == 1 else "salta su %d mine" % boom.size(), "mezzo danno" if boom.size() == 1 else "mezzo danno ciascuna"])
 		for t in boom:
 			gfx.append({"k": "mine", "cell": t})
 	# mine sganciate sulle caselle lasciate dietro (dall'ultima prima dell'arrivo indietro)
@@ -1218,12 +1238,15 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 	for q in players:
 		if q == p or level(q.al, "sn") <= 0 or int(q.al.get("snt", -1)) != p.id:
 			continue
+		if invisible(p):
+			msgs.append("il cecchino di %s non la trova: è invisibile" % q.name)
+			continue
 		var ch := sniper_chance(level(q.al, "sn"), spd, int(ei[0]), level(p.al, "sh"))
 		var hit := rng.randf() < ch
 		var pct := int(round(ch * 100.0))
 		if hit:
-			extra += 1
-			msgs.append("colpita dal cecchino di %s (+1, mira %d%%)" % [q.name, pct])
+			halves += 1
+			msgs.append("colpita dal cecchino di %s (mezzo danno, mira %d%%)" % [q.name, pct])
 		elif level(p.al, "sh") > 0:
 			msgs.append("lo scudo devia il colpo del cecchino di %s (mira %d%%)" % [q.name, pct])
 		else:
@@ -1232,7 +1255,7 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 	# missile dritto davanti
 	var ms := level(p.al, "ms")
 	if ms > 0:
-		var r := _missile(p, end, 3 + 2 * ms, msgs)
+		var r := _missile(p, end, 4 + 3 * ms, msgs)
 		r["k"] = "missile"
 		r["by"] = p.id
 		gfx.append(r)
@@ -1264,11 +1287,11 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 			var from_c := t.cell
 			t.cell = c
 			if crashed:
-				add_dent(t, 1)
-			msgs.append("il blast ionico sposta %s di %d corsi%s%s" % [t.name, moved, "a" if moved == 1 else "e", " contro il bordo (+1 a lei)" if crashed else ""])
+				add_half_dent(t)
+			msgs.append("il blast ionico sposta %s di %d corsi%s%s" % [t.name, moved, "a" if moved == 1 else "e", " contro il bordo (mezzo danno a lei)" if crashed else ""])
 			gfx.append({"k": "blast", "pid": p.id, "to": t.id, "from": from_c, "cell": c})
-	if extra > 0:
-		o["dents"] = int(o["dents"]) + extra
+	if halves > 0:
+		o["ghalf"] = halves
 	o["gfx"] = gfx
 
 ## Turni che mancano, stimati dai passi al traguardo.
@@ -1298,7 +1321,8 @@ func ai_alloc(p: Player) -> Dictionary:
 		var tgt: Player = order[0] if rank > 0 else order[1]
 		if rank > 1 and randf() < 0.4:
 			tgt = order[rank - 1]
-		opts.append(["sn", 1.2 + (0.6 if rank > 0 else 0.0), tgt.id])
+		if not invisible(tgt) and tgt != p:
+			opts.append(["sn", 1.2 + (0.6 if rank > 0 else 0.0), tgt.id])
 	var behind := 0
 	for q in _on_track(p):
 		var d: int = int(cell(q.cell)["togo"]) - int(c0["togo"])
@@ -1317,6 +1341,8 @@ func ai_alloc(p: Player) -> Dictionary:
 		opts.append(["cm", 0.6 + behind * 0.4, -1])
 	if p.dents >= 2:
 		opts.append(["sh", 1.5 + p.dents * 0.5, -1])
+		if not invisible(p):
+			opts.append(["iv", 0.6 + p.dents * 0.3, -1])
 	if mines.size() > 0:
 		opts.append(["ra", 0.8 + 0.3 * mines.size(), -1])
 	# movimento: postbruciatore lontano dalle curve
@@ -1338,7 +1364,7 @@ func ai_alloc(p: Player) -> Dictionary:
 				break
 		var k: String = pick[0]
 		var lv: int = min(spend, 1 + (1 if randf() < 0.35 else 0))
-		lv = min(lv, MAX_LEVEL - level(a, k))
+		lv = min(lv, max_level(k) - level(a, k))
 		if lv <= 0:
 			opts.erase(pick)
 			continue
