@@ -71,6 +71,7 @@ func _part(mesh: Mesh, m: Material, pos: Vector3, rot := Vector3.ZERO, parent: N
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	mi.material_override = m
+	mi.set_meta("orig_mat", m)
 	mi.position = pos
 	mi.rotation = rot
 	(parent if parent else self).add_child(mi)
@@ -182,17 +183,19 @@ func _build_glb(path: String) -> void:
 		# ugello dietro il motore: coordinate del modello (lunghezza 1) scalate
 		var rz: float = min(float(d[2]), -0.08)
 		var pos := Vector3(float(d[0]), float(d[1]) - 0.04 / LEN, rz) * LEN
-		var r: float = clamp(float(d[3]) * LEN * 0.32, 0.018, 0.045)
+		var r: float = clamp(float(d[3]) * LEN * 0.42, 0.024, 0.06)
 		var e := Node3D.new()
 		e.position = pos
 		_rig.add_child(e)
-		var outer := _part(cyl(0.0, r, 0.3, 14), glow(Color("3fa8ff"), 1.0, 0.38), Vector3(0, 0, 0.15), Vector3(PI / 2, 0, 0), e)
-		var core := _part(cyl(0.0, r * 0.45, 0.2, 10), glow(Color("b8f2ff"), 1.2, 0.55), Vector3(0, 0, 0.1), Vector3(PI / 2, 0, 0), e)
+		var outer := _part(cyl(0.0, r, 0.3, 14), glow(Color("2f9dff"), 2.0, 0.6), Vector3(0, 0, 0.15), Vector3(PI / 2, 0, 0), e)
+		var core := _part(cyl(0.0, r * 0.5, 0.2, 10), glow(Color("e6fbff"), 3.0, 0.85), Vector3(0, 0, 0.1), Vector3(PI / 2, 0, 0), e)
+		# bagliore dell'ugello
+		_part(sph(r * 1.1), glow(Color("7fd4ff"), 2.5, 0.7), Vector3.ZERO, Vector3.ZERO, e)
 		_flames.append(outer)
 		_flame_cores.append(core)
 		_flame_mats.append(outer.material_override)
 		_engines.append([e, randf() * TAU])
-	_shield_mat = glow(Color("58d8ff"), 0.7, 0.18)
+	_shield_mat = glow(Color("58d8ff"), 0.9, 0.26)
 	_shield = _part(sph(0.5), _shield_mat, Vector3(0, 0.08, 0.0), Vector3.ZERO, _rig)
 	_shield.scale = Vector3(0.8, 0.45, 1.15)
 	_shield.visible = false
@@ -207,13 +210,19 @@ func set_hidden(mode: int) -> void:
 		return
 	hidden_mode = mode
 	_rig.visible = mode != 1
-	_apply_transp(_rig, 0.75 if mode == 2 else 0.0)
+	if _ghost_mat == null:
+		_ghost_mat = glow(Color("8fe6ff"), 0.9, 0.28)
+	_apply_ghost(_glb if _glb != null else _rig, _ghost_mat if mode == 2 else null)
 
-func _apply_transp(n: Node, t: float) -> void:
+## Sagoma olografica: tutte le superfici della navetta diventano azzurre e trasparenti.
+var _ghost_mat: StandardMaterial3D = null
+func _apply_ghost(n: Node, m: Material) -> void:
+	if n == null:
+		return
 	for c in n.get_children():
-		if c is GeometryInstance3D:
-			(c as GeometryInstance3D).transparency = t
-		_apply_transp(c, t)
+		if c is MeshInstance3D and not _flames.has(c) and not _flame_cores.has(c) and c != _shield:
+			(c as MeshInstance3D).material_override = m if m != null else (c.get_meta("orig_mat") if c.has_meta("orig_mat") else null)
+		_apply_ghost(c, m)
 
 func set_shield(on: bool) -> void:
 	shield_on = on
@@ -278,13 +287,13 @@ func _process(delta: float) -> void:
 				core.scale = Vector3(w, fl * flick * 0.8, w)
 				core.position.z = 0.1 * fl * flick * 0.8
 			if i < _flame_mats.size():
-				(_flame_mats[i] as StandardMaterial3D).emission_energy_multiplier = 0.5 + 0.3 * v
+				(_flame_mats[i] as StandardMaterial3D).emission_energy_multiplier = 1.2 + 0.5 * v
 		else:
 			fm.position.z = 0.205 + 0.11 * fl * flick
 	if _arc_mat and _arc:
 		_arc_mat.emission_energy_multiplier = 1.1 + 0.6 * abs(sin(_t * 23.0)) + run * 0.4
 		_arc.position.y = sin(_t * 31.0) * 0.004
 	if _shield and _shield.visible:
-		_shield_mat.albedo_color.a = 0.14 + 0.05 * sin(_t * 4.0)
+		_shield_mat.albedo_color.a = 0.22 + 0.07 * sin(_t * 4.0)
 	if not _cables.is_empty():
 		_update_cables()

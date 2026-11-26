@@ -17,6 +17,7 @@ func _init() -> void:
 	for g in ng:
 		var game := SledGame.new()
 		game.setup(c, [true, true, true, true, true])
+		game.energy_on = OS.get_environment("ST_NOEN") != "1"
 		for p in game.players:
 			var fs := game.free_slots()
 			game.take_slot(p, fs[randi() % fs.size()])

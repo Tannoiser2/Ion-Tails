@@ -1092,7 +1092,7 @@ func show_help(force_fan := false) -> void:
 
 [b]Fine.[/b] Si corre finché tutte le navette hanno tagliato il traguardo. In classifica conta prima il turno in cui si taglia il traguardo, poi chi è andato più lontano oltre la linea."""))
 	c1.add_child(UIKit.heading("Punti gadget"))
-	c1.add_child(_rule_text("""[b]La scorta.[/b] A inizio gara ogni navetta riceve una scorta di punti che dipende dalla lunghezza della pista (un punto ogni %d passi dalla partenza al traguardo): non se ne ricevono altri. Ogni punto speso è perso.
+	c1.add_child(_rule_text("""[b]La scorta.[/b] A inizio gara ogni navetta riceve una scorta di punti che dipende dalla lunghezza della pista (un punto ogni %d passi dalla partenza al traguardo, al massimo 12): non se ne ricevono altri. Ogni punto speso è perso.
 
 [b]La scelta segreta.[/b] All'inizio di ogni turno, prima di muovere, ognuno decide in segreto quali gadget usare, con 1 o 2 punti ciascuno, in attacchi, difese e movimento, entro il tempo scelto nel menu (allo scadere vale la scelta fatta fin lì). Poi si muove come al solito; i gadget si scoprono quando agiscono.
 
@@ -1102,10 +1102,10 @@ func show_help(force_fan := false) -> void:
 [b]Missile.[/b] A fine mossa spari un missile guidato dritto davanti, nella tua corsia: gittata 7 caselle (1 punto) o 10 (2 punti). Colpisce la prima navetta visibile che incontra: mezzo danno.
 
 [b]Difese[/b]
-[b]Scudo.[/b] Toglie il 40%% (1 punto) o l'80%% (2 punti) alla mira dei cecchini, ma ferma i missili (che arrivano da dietro) solo il 20%% o il 40%% delle volte.
-[b]Radar.[/b] Vedi le mine del settore (la tessera) in cui sei e del seguente con 1 punto, anche dei due seguenti con 2. La rotta le evita quando può.
+[b]Scudo.[/b] Si accende quando la navetta parte (prima lo vedi solo tu): una bolla azzurra attorno alla navetta per tutto il turno. Toglie il 40%% (1 punto) o l'80%% (2 punti) alla mira dei cecchini, ma ferma i missili (che arrivano da dietro) solo il 20%% o il 40%% delle volte.
+[b]Radar.[/b] Vedi le mine fino a 12 caselle davanti a te con 1 punto, fino a 24 con 2 (e quelle appena dietro). La rotta le evita quando può. A inizio turno un'onda verde parte dalla tua navetta e una scritta dice quante mine ha trovato.
 [b]CME.[/b] Contromisure contro i missili: con 1 punto il missile cambia corsia (e può colpire un'altra navetta), con 2 esplode.
-[b]Invisibilità.[/b] Con 1 punto sparisci alla vista degli altri per questo turno, con 2 anche per il seguente: cecchini, missili, arpione e blast non ti trovano, ma tu puoi sganciare mine e sparare. Le mine colpiscono anche chi è invisibile.
+[b]Invisibilità.[/b] Tu vedi la tua navetta come una sagoma olografica azzurra. Con 1 punto sparisci alla vista degli altri per questo turno, con 2 anche per il seguente: cecchini, missili, arpione e blast non ti trovano, ma tu puoi sganciare mine e sparare. Le mine colpiscono anche chi è invisibile.
 
 [b]Mezzi danni.[/b] Tutti i gadget fanno mezzo danno: ne servono due per un danno intero.
 
@@ -1378,6 +1378,7 @@ func _begin_round() -> void:
 	if game.energy_on:
 		game.energy_round_start()
 		_in_energy = true
+		board.shield_ids = {}
 		energy_list = []
 		for p in game.race_order():
 			if game.racing(p) and p.energy > 0:
@@ -1492,8 +1493,21 @@ func _energy_finish() -> void:
 		if not online.get("catchup", false):
 			board.hook_fx(h["by"].id, h["to"].id, int(h["lv"]))
 	var me = _viewer()
-	if me != null and game.invisible(me) and not online.get("catchup", false):
-		board.popup(board.ship_pos(me.id), "INVISIBILE", Color("9fd8ff"))
+	if me != null and not online.get("catchup", false):
+		var tags := []
+		if game.invisible(me):
+			tags.append("INVISIBILE")
+		if game.level(me.al, "ra") > 0:
+			var n := 0
+			for mc in game.mines:
+				if game.sees_mine(me, int(mc)) and int(game.mines[mc]) != me.id:
+					n += 1
+			tags.append("RADAR: %s" % ("NESSUNA MINA" if n == 0 else ("1 MINA" if n == 1 else "%d MINE" % n)))
+			board.radar_fx(me.id)
+		for t in tags:
+			board.popup(board.ship_pos(me.id), t, Color("9fd8ff"))
+	_sync_gadget_view()
+	board.redraw()
 	game.log_text = "Gadget scelti in segreto: si parte!" + (" " + ";  ".join(parts) if not parts.is_empty() else "")
 	board.redraw()
 	_begin_moves()
@@ -1669,6 +1683,7 @@ func _apply_choice(pend: Array, o: Dictionary) -> void:
 	outs = []
 	board.destinations = []
 	_refresh()
+	_reveal_on_start(p)
 	await _pause(0.15)
 	var full := [start_cell]
 	full.append_array(o["path"])
@@ -2317,6 +2332,8 @@ func _sim_resolve(my: int) -> void:
 			pts.append(course.cells[t]["pos"])
 	board.frame(pts)
 	_refresh()
+	for x in plan:
+		_reveal_on_start(x["p"])
 	await _pause(0.3)
 	# tutti partono e arrivano insieme: chi ha più caselle da fare va più veloce
 	var items := []
@@ -3903,3 +3920,11 @@ func _gadget_img(k: String, h: int) -> TextureRect:
 	t.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	return t
+
+## Alla partenza della mossa lo scudo si accende e si vede da tutti.
+func _reveal_on_start(p) -> void:
+	if game.level(p.al, "sh") > 0 and not board.shield_ids.has(p.id):
+		board.shield_ids[p.id] = true
+		if not online.get("catchup", false) and not (game.invisible(p) and _viewer() != p):
+			board.popup(board.ship_pos(p.id), "SCUDO ATTIVO", Color("6fe3ff"))
+		board.redraw()

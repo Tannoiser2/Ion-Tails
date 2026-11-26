@@ -12,7 +12,7 @@ Progetto Godot 4.7, renderer Compatibility. Le tessere sono le scansioni di Snow
 
 ## Regole aggiuntive: punti gadget
 A inizio gara ogni navetta riceve una **scorta di punti** in base alla lunghezza della pista: un punto
-ogni 4 passi dalla partenza al traguardo (The Nutcracker 11, Bruce's Nightmare 17). Non se ne ricevono altri.
+ogni 4 passi dalla partenza al traguardo, al massimo 12 (The Nutcracker 11, Bruce's Nightmare 12). Non se ne ricevono altri.
 
 All'inizio di ogni **turno** (tutte le navette muovono una volta) ognuno sceglie **in segreto** i gadget:
 per ognuno ci sono due tasti, **1** e **2** punti; se ne accende al massimo uno, toccando quello acceso
@@ -28,8 +28,8 @@ si scoprono solo quando agiscono.
 | Attacchi | Cecchino (bersaglio a scelta, spara a fine mossa del bersaglio) | mira 55% | mira 80% |
 | Attacchi | Mine (sulle caselle lasciate dietro) | 1 mina | 2 mine |
 | Attacchi | Missile (dritto nella tua corsia, a fine mossa) | gittata 7 | gittata 10 |
-| Difese | Scudo | −40% alla mira dei cecchini, ferma i missili il 20% delle volte | −80%, 40% |
-| Difese | Radar | mine del tuo settore e del seguente | anche del secondo seguente |
+| Difese | Scudo (bolla azzurra da quando la navetta parte) | −40% alla mira dei cecchini, ferma i missili il 20% delle volte | −80%, 40% |
+| Difese | Radar (onda verde e conteggio a inizio turno) | mine fino a 12 caselle davanti | fino a 24 |
 | Difese | CME (contro i missili) | il missile cambia corsia | il missile esplode |
 | Difese | Invisibilità | 1 turno | 2 turni |
 | Movimento | Postbruciatore | +1 velocità | +2 velocità |
@@ -43,6 +43,13 @@ sparare; le mine colpiscono anche chi è invisibile.
 
 Fuori dalle caselle il terreno è una **banchina di roccia rialzata** che continua nelle pareti del canyon:
 dove la pista si restringe la roccia avanza a sperone (`SegmentFx.terrain`).
+
+Ogni curva con limite ha una **barriera elettrificata** da un bordo all'altro della pista con il
+numero del limite olografico che ruota a mezz'aria.
+
+La CPU sceglie i gadget guardando la pista: missili solo con un bersaglio davanti nella propria
+corsia, mine con qualcuno dietro, blast e arpione su chi è subito davanti, scudo e CME quando è
+minacciata, radar se ci sono mine altrui.
 
 Il resto è Snow Tails: carte 1-5, motori a 3 all'inizio, curve con limite, bordi, tamponamenti,
 massi, dune e crepacci, salto della gola. Nei segmenti fanmade il vento diventa **tempesta di sabbia**,

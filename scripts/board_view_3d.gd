@@ -21,6 +21,8 @@ var replay := {}            # pid -> {pos: Vector3, dir: Vector2, run: float}
 ## Ion Tails: mine visibili a chi guarda, gadget del giro in vista (dopo la rivelazione)
 var mine_cells: Array = []
 var viewer_id := -1          # navetta di chi guarda (vede la propria anche se invisibile)
+var shield_ids := {}         # navette con lo scudo già scoperto (si vede dalla partenza della mossa)
+var _gates: Array = []       # [linea, materiale, numero olografico]
 var show_al := false
 var _nests: Array = []
 var _nest_nodes: Array = []
@@ -165,6 +167,7 @@ func setup(c: Course, g: SledGame) -> void:
 	var ter := SegmentFx.terrain(c)
 	_tiles.add_child(ter)
 	_nests = ter.get_meta("nests", [])
+	_build_limit_gates(c)
 	_nest_nodes = ter.get_meta("nest_nodes", [])
 	_smoke_nodes.clear()
 	_saps = Node3D.new()
@@ -481,7 +484,8 @@ func _update_teams(labels_only := false) -> void:
 		var rk := order.find(p) + 1
 		lb.text = str(rk) + (("  D%d" % p.dents) + ("½" if p.half else "") if p.dents > 0 else ("  D½" if p.half else ""))
 		ring.visible = p.id == current_id
-		node.set_shield(show_al and p.al.has("sh"))
+		# scudo: si vede da quando la navetta parte (e sempre sulla propria navetta)
+		node.set_shield(p.al.has("sh") and (shield_ids.has(p.id) or p.id == viewer_id) and replay.is_empty())
 		node.set_thrust(p.L, p.R)
 		# invisibilità: sparisce per gli altri, chi la guida vede una sagoma trasparente
 		var hid := 0
@@ -713,6 +717,7 @@ func set_follow(on: bool) -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	_animate_gates(delta)
 	if cam == null:
 		return
 	var k := 1.0 - exp(-5.0 * delta)
@@ -1251,3 +1256,86 @@ func emp_fx_at(at: Vector3) -> void:
 	var tw := create_tween()
 	tw.tween_property(r, "scale", Vector3.ONE * 3.0, 0.45)
 	tw.tween_callback(r.queue_free)
+
+
+# ---------- limiti delle curve: barriera elettrificata con il numero olografico ----------
+func _build_limit_gates(c: Course) -> void:
+	_gates.clear()
+	for l in c.limits:
+		var a: Vector3 = to3(l["a"], 0.0)
+		var b: Vector3 = to3(l["b"], 0.0)
+		var ext := (b - a).normalized() * 0.25
+		a -= ext
+		b += ext
+		var g := Node3D.new()
+		_tiles.add_child(g)
+		# due piloni alle estremità
+		for p in [a, b]:
+			var py := MeshInstance3D.new()
+			py.mesh = TeamModel.cyl(0.035, 0.055, 0.7, 8)
+			py.material_override = TeamModel.metal(Color("4a525e"), 0.5)
+			py.position = p + Vector3(0, 0.35, 0)
+			g.add_child(py)
+			var tip := MeshInstance3D.new()
+			tip.mesh = TeamModel.sph(0.05)
+			tip.material_override = TeamModel.glow(Color("8af6ff"), 2.0)
+			tip.position = p + Vector3(0, 0.72, 0)
+			g.add_child(tip)
+		# linea elettrificata (due fili che sfarfallano) all'altezza delle punte
+		var mats := []
+		for k in 2:
+			var w := MeshInstance3D.new()
+			var d := b - a
+			w.mesh = TeamModel.cyl(0.016, 0.016, 1.0, 6)
+			var m := TeamModel.glow(Color("3fd0ff"), 1.3, 0.8)
+			w.material_override = m
+			var up := d.normalized()
+			var x := up.cross(Vector3.UP).normalized()
+			w.basis = Basis(x, up, x.cross(up).normalized()) * Basis.from_scale(Vector3(1, d.length(), 1))
+			w.position = (a + b) * 0.5 + Vector3(0, 0.72 - k * 0.1, 0)
+			g.add_child(w)
+			mats.append(m)
+		# numero olografico a mezz'aria che ruota
+		var holo := Node3D.new()
+		holo.position = (a + b) * 0.5 + Vector3(0, 1.35, 0)
+		g.add_child(holo)
+		for side in [0.0, PI]:
+			var lb := Label3D.new()
+			lb.text = str(l["lim"])
+			lb.font = load(UIKit.F_TITLE)
+			lb.font_size = 220
+			lb.pixel_size = 0.004
+			lb.outline_size = 18
+			lb.modulate = Color(0.6, 0.97, 1.0, 0.9)
+			lb.outline_modulate = Color(0.05, 0.45, 0.95, 0.75)
+			lb.shaded = false
+			lb.double_sided = false
+			lb.rotation.y = side
+			holo.add_child(lb)
+		var ring := _ring(0.38, Color("8af6ff"), 0.018)
+		ring.position = holo.position - Vector3(0, 0.55, 0)
+		g.add_child(ring)
+		_gates.append([mats, holo, randf() * TAU])
+
+func _animate_gates(delta: float) -> void:
+	for gt in _gates:
+		var holo: Node3D = gt[1]
+		if not is_instance_valid(holo):
+			continue
+		holo.rotation.y += delta * 1.2
+		holo.position.y += sin(_t * 2.0 + float(gt[2])) * 0.0015
+		for m in gt[0]:
+			(m as StandardMaterial3D).albedo_color.a = 0.55 + 0.45 * abs(sin(_t * 23.0 + float(gt[2]) + randf() * 0.6))
+			(m as StandardMaterial3D).emission_energy_multiplier = 0.9 + 0.9 * randf()
+
+## Radar: anello verde che si allarga dalla navetta.
+func radar_fx(pid: int) -> void:
+	var at := ship_pos(pid)
+	for k in 2:
+		var r := _ring(0.3, Color("6dff8a"), 0.02)
+		r.position = at - Vector3(0, 0.1, 0)
+		_fx.add_child(r)
+		var tw := create_tween()
+		tw.tween_interval(0.35 * k)
+		tw.tween_property(r, "scale", Vector3.ONE * 14.0, 1.4)
+		tw.tween_callback(r.queue_free)

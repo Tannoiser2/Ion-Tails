@@ -42,7 +42,7 @@ func _run() -> void:
 	await until(["energy"])
 	await wait(1.0)
 	await shot("03_energy")
-	main.en_draft = {"mi": 1, "bo": 2, "sn": 2, "snt": main.game.players[1].id}
+	main.en_draft = {"iv": 1, "sh": 1, "ra": 1, "bo": 1, "sn": 1, "snt": main.game.players[1].id}
 	main._refresh()
 	await wait(0.3)
 	await shot("04_energy_sel")
@@ -100,4 +100,10 @@ func _run() -> void:
 	main.board.target_goal = BoardView3D.to3(ctr)
 	await wait(2.0)
 	await shot("12_top")
+	var lm: Dictionary = main.course.limits[0]
+	main.board.target_goal = BoardView3D.to3((lm["a"] + lm["b"]) * 0.5)
+	main.board.dist_goal = 4.0
+	main.board.pitch = deg_to_rad(25)
+	await wait(2.0)
+	await shot("13_gate")
 	quit()

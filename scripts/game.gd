@@ -68,6 +68,7 @@ var simultaneous := false
 ## quanti punti investire (da 0 a MAX_LEVEL) in attacchi, difese e movimento.
 var energy_on := true
 const BUDGET_DIV := 4.0
+const BUDGET_MAX := 12     # sulle piste lunghe non di più: troppi colpi distruggono le navette
 const MAX_LEVEL := 2
 ## chiave -> [nome, categoria, descrizione per livello]
 const GADGETS := {
@@ -75,7 +76,7 @@ const GADGETS := {
 	"mi": ["Mine", "Attacchi", "una mina (1 punto) o due (2 punti) sulle caselle che ti lasci dietro: chi ci passa prende mezzo danno"],
 	"ms": ["Missile", "Attacchi", "a fine mossa spara dritto davanti nella tua corsia: gittata 7 caselle (1 punto) o 10 (2 punti). Mezzo danno"],
 	"sh": ["Scudo", "Difese", "toglie il 40% (1 punto) o l'80% (2 punti) alla mira dei cecchini, ma ferma i missili da dietro solo il 20% o il 40% delle volte"],
-	"ra": ["Radar", "Difese", "rivela le mine del settore in cui sei e del seguente (1 punto) o dei due seguenti (2 punti)"],
+	"ra": ["Radar", "Difese", "rivela le mine fino a 12 caselle davanti a te (1 punto) o fino a 24 (2 punti), e quelle appena dietro"],
 	"cm": ["CME", "Difese", "contromisure contro i missili: con 1 punto il missile cambia corsia, con 2 esplode"],
 	"iv": ["Invisibilità", "Difese", "sparisci alla vista degli altri per 1 turno (1 punto) o 2 turni (2 punti): cecchini, missili, arpione e blast non ti trovano, ma tu puoi continuare a sganciare mine e sparare"],
 	"bo": ["Postbruciatore", "Movimento", "+1 (1 punto) o +2 (2 punti) alla velocità di questa mossa; conta anche per i limiti delle curve"],
@@ -969,7 +970,7 @@ static func budget_for(c: Course) -> int:
 	if c.start_cells.is_empty():
 		return 10
 	var togo := int(c.cells[c.start_cells[min(2, c.start_cells.size() - 1)]].get("togo", 40))
-	return max(6, int(round(float(togo) / BUDGET_DIV)))
+	return clampi(int(round(float(togo) / BUDGET_DIV)), 6, BUDGET_MAX)
 
 ## Inizio turno: via le scelte del turno prima.
 func energy_round_start() -> void:
@@ -1031,9 +1032,7 @@ func apply_alloc(p: Player, a: Dictionary) -> void:
 	if clean.has("iv"):
 		p.invis_until = max(p.invis_until, round_n + int(clean["iv"]) - 1)
 	if clean.has("ra") and p.cell >= 0:
-		var pc := int(cell(p.cell)["piece"])
-		clean["ra0"] = pc
-		clean["ra1"] = pc + int(clean["ra"])
+		clean["ra0"] = int(cell(p.cell)["togo"])
 	p.al = clean
 
 ## Dopo le scelte di tutti: l'arpione rallenta subito il bersaglio per questo turno.
@@ -1075,6 +1074,7 @@ func _ahead(p: Player, from_cell: int, rng_max: int) -> Player:
 	return best
 
 const HOOK_RANGE := 6
+const RADAR_RANGE := 12
 func hook_target(p: Player) -> Player:
 	return _ahead(p, p.cell, HOOK_RANGE)
 
@@ -1090,10 +1090,13 @@ func sees_mine(p: Player, cell_id: int) -> bool:
 		return false
 	if int(mines[cell_id]) == p.id:
 		return true
-	if level(p.al, "ra") <= 0:
+	var lv := level(p.al, "ra")
+	if lv <= 0:
 		return false
-	var pc := int(cell(cell_id)["piece"])
-	return pc >= int(p.al.get("ra0", 0)) and pc <= int(p.al.get("ra1", -1))
+	# raggio misurato in passi verso il traguardo dalla posizione a inizio turno
+	var t0 := int(p.al.get("ra0", 0))
+	var tm := int(cell(cell_id)["togo"])
+	return tm <= t0 + 3 and tm >= t0 - RADAR_RANGE * lv
 
 ## Corsie fra la casella e il bordo più vicino (0 = sul bordo), e il lato del bordo (-1 sx, 1 dx).
 func edge_info(cell_id: int) -> Array:
@@ -1312,73 +1315,119 @@ func ai_alloc(p: Player) -> Dictionary:
 	var a := {}
 	if p.energy <= 0 or p.cell < 0:
 		return a
+	# ritmo di spesa: i punti devono bastare fino al traguardo, con qualche fiammata
 	var rate: float = float(p.energy) / _rounds_left(p)
-	var spend := int(floor(rate * 1.3 + randf()))
-	spend = clampi(spend, 0, p.energy)
-	if spend <= 0:
+	var budget_now := int(floor(rate * 1.4 + randf() * 0.9))
+	budget_now = clampi(budget_now, 0, min(p.energy, 3))
+	if budget_now <= 0:
 		return a
 	var order := race_order()
 	var rank := order.find(p)
 	var c0 := cell(p.cell)
-	var opts := []
-	# attacchi
-	if order.size() > 1:
-		var tgt: Player = order[0] if rank > 0 else order[1]
-		if rank > 1 and randf() < 0.4:
-			tgt = order[rank - 1]
-		if not invisible(tgt) and tgt != p:
-			opts.append(["sn", 1.2 + (0.6 if rank > 0 else 0.0), tgt.id])
-	var behind := 0
+	var my_togo := int(c0["togo"])
+	var my_lat := float(c0.get("lat", 0.0))
+	var lane: float = course.lane_w
+	var ahead := []     # [navetta, passi di distanza]
+	var behind := []
 	for q in _on_track(p):
-		var d: int = int(cell(q.cell)["togo"]) - int(c0["togo"])
-		if d >= 1 and d <= 5:
-			behind += 1
-	if behind > 0:
-		opts.append(["mi", 0.8 + behind * 0.3, -1])
-	if _ahead(p, p.cell, 8) != null:
-		opts.append(["ms", 1.0, -1])
-		opts.append(["bl", 0.8, -1])
-		opts.append(["ho", 1.2, -1])
-	# difese
-	if rank <= 1:
-		opts.append(["sh", 2.2 if rank == 0 else 1.4, -1])
-	if behind > 0:
-		opts.append(["cm", 0.6 + behind * 0.4, -1])
-	if p.dents >= 2:
-		opts.append(["sh", 1.5 + p.dents * 0.5, -1])
-		if not invisible(p):
-			opts.append(["iv", 0.6 + p.dents * 0.3, -1])
-	if mines.size() > 0:
-		opts.append(["ra", 0.8 + 0.3 * mines.size(), -1])
-	# movimento: postbruciatore lontano dalle curve
+		if q.finish_round != 0:
+			continue
+		var d: int = my_togo - int(cell(q.cell)["togo"])
+		if d > 0:
+			ahead.append([q, d])
+		elif d < 0:
+			behind.append([q, -d])
+	# valori (utilità) di ogni gadget in questa situazione, con il livello consigliato
+	var opts := []     # [chiave, valore, livello, bersaglio]
+	var vis_ahead := ahead.filter(func(x): return not invisible(x[0]))
+	# CECCHINO: sul più vicino davanti; se sono in testa, su chi mi tallona; meglio se vicino alle pareti
+	var sn_t: Player = null
+	var best_sn := -1.0
+	for x in vis_ahead + behind:
+		var q: Player = x[0]
+		if invisible(q):
+			continue
+		var edge := int(edge_info(q.cell)[0])
+		var v: float = 1.5 - 0.1 * float(x[1]) - 0.3 * edge + (0.4 if ahead.has(x) else 0.0)
+		if q == order[0] and q != p:
+			v += 0.5
+		if v > best_sn:
+			best_sn = v
+			sn_t = q
+	if sn_t != null and best_sn > 0.6:
+		opts.append(["sn", best_sn, 2 if best_sn > 1.9 else 1, sn_t.id])
+	# MISSILE: solo se qualcuno è davanti, a tiro, nella mia corsia (circa)
+	var ms_v := 0.0
+	for x in vis_ahead:
+		var q: Player = x[0]
+		var dl: float = absf(float(cell(q.cell).get("lat", 0.0)) - my_lat)
+		if int(x[1]) >= 2 and int(x[1]) <= 12 and dl < lane * 0.6:
+			ms_v = max(ms_v, 2.4 - 0.1 * float(x[1]))
+	if ms_v > 0.0:
+		opts.append(["ms", ms_v, 2 if ms_v < 1.6 else 1, -1])
+	# MINE: utili solo con qualcuno dietro, vicino
+	var mi_v := 0.0
+	for x in behind:
+		if int(x[1]) <= 7:
+			mi_v += 0.9 - 0.08 * float(x[1])
+	if mi_v > 0.3:
+		opts.append(["mi", mi_v + 0.4, 2 if mi_v > 1.2 else 1, -1])
+	# BLAST: qualcuno subito davanti, meglio se vicino al bordo (rischia di sbatterci)
+	for x in vis_ahead:
+		if int(x[1]) <= 3:
+			var edge := int(edge_info((x[0] as Player).cell)[0])
+			opts.append(["bl", 0.9 + (0.7 if edge <= 1 else 0.0), 2 if edge <= 1 else 1, -1])
+			break
+	# ARPIONE: qualcuno davanti a portata, soprattutto se mi sta battendo di poco
+	for x in vis_ahead:
+		if int(x[1]) <= HOOK_RANGE:
+			opts.append(["ho", 1.7 - 0.1 * float(x[1]), 1, -1])
+			break
+	# SCUDO: chi è davanti è il bersaglio preferito dei cecchini
+	var threat := 0
+	for q in players:
+		if q != p and racing(q) and q.energy >= 1:
+			threat += 1
+	var sh_v: float = (1.9 if rank == 0 else (1.3 if rank == 1 else 0.7)) + 0.3 * p.dents + 0.1 * threat
+	opts.append(["sh", sh_v, 2 if sh_v > 2.2 else 1, -1])
+	# CME: qualcuno dietro nella mia corsia, con punti, può spararmi un missile
+	var cm_v := 0.0
+	for x in behind:
+		var q: Player = x[0]
+		var dl: float = absf(float(cell(q.cell).get("lat", 0.0)) - my_lat)
+		if int(x[1]) <= 10 and dl < lane * 0.6 and q.energy >= 1:
+			cm_v = max(cm_v, 1.3)
+	if cm_v > 0.0:
+		opts.append(["cm", cm_v, 1, -1])
+	# INVISIBILITÀ: in testa e già malconcia, o con tanti inseguitori armati
+	if not invisible(p) and (rank == 0 and (p.dents >= 2 or threat >= 3)):
+		opts.append(["iv", 1.0 + 0.3 * p.dents, 1, -1])
+	# RADAR: ci sono mine in pista e non sono mie
+	var foreign := 0
+	for mc in mines:
+		if int(mines[mc]) != p.id:
+			foreign += 1
+	if foreign > 0:
+		opts.append(["ra", 0.55 + 0.15 * min(foreign, 4), 2 if foreign >= 4 else 1, -1])
+	# POSTBRUCIATORE: lontano dalle curve, se serve recuperare
 	var nl := course.next_limit(float(c0["s"]))
 	if nl.is_empty() or (float(nl["s"]) - float(c0["s"])) / course.cell_len > 10.0:
-		opts.append(["bo", 1.6, -1])
-	if opts.is_empty():
-		return a
-	while spend > 0 and not opts.is_empty():
-		var tot := 0.0
-		for o in opts:
-			tot += float(o[1])
-		var r := randf() * tot
-		var pick: Array = opts[0]
-		for o in opts:
-			r -= float(o[1])
-			if r <= 0:
-				pick = o
-				break
-		var k: String = pick[0]
-		var lv: int = min(spend, 1 + (1 if randf() < 0.35 else 0))
-		lv = min(lv, max_level(k) - level(a, k))
+		opts.append(["bo", 1.2 + 0.15 * rank, 2 if rank >= 2 else 1, -1])
+	# scelta: i più utili prima, con un po' di imprevedibilità
+	for o in opts:
+		o[1] = float(o[1]) * randf_range(0.75, 1.25)
+	opts.sort_custom(func(x, y): return float(x[1]) > float(y[1]))
+	var left := budget_now
+	for o in opts:
+		if left <= 0 or float(o[1]) < 0.8:
+			break
+		var lv: int = min(int(o[2]), left, max_level(o[0]))
 		if lv <= 0:
-			opts.erase(pick)
 			continue
-		a[k] = level(a, k) + lv
-		if k == "sn":
-			a["snt"] = pick[2]
-		spend -= lv
-		if randf() < 0.5:
-			opts.erase(pick)
+		a[o[0]] = lv
+		if o[0] == "sn":
+			a["snt"] = o[3]
+		left -= lv
 	if not alloc_ok(p, a):
 		return {}
 	return a
