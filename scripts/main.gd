@@ -1850,6 +1850,27 @@ func start_replay() -> void:
 			for k in range(1, pts.size()):
 				lens.append(lens[k - 1] + (pts[k] as Vector3).distance_to(pts[k - 1]))
 			paths.append({"mv": mv, "pts": pts, "lens": lens})
+		# effetti dei gadget nel momento giusto del movimento, senza fermare il replay
+		var evs := []
+		for mv in moves:
+			var pth: Array = mv["path"]
+			var n: int = max(pth.size() - 1, 1)
+			var pr = game.players[mv["pid"]]
+			pr.L = int(mv.get("L", pr.L))
+			pr.R = int(mv.get("R", pr.R))
+			for g in mv.get("gfx", []):
+				var at := 0.9 + randf() * 0.08
+				match String(g.get("k", "")):
+					"boost", "hook":
+						at = 0.02
+					"mine", "drop":
+						var k: int = pth.find(int(g["cell"]))
+						at = clamp(float(k) / float(n), 0.0, 1.0) if k >= 0 else 0.5
+					"missile":
+						at = 0.8 + randf() * 0.1
+				evs.append({"at": at, "g": g})
+		evs.sort_custom(func(x, y): return float(x["at"]) < float(y["at"]))
+		var ev_i := 0
 		# la telecamera segue da sola il gruppo in movimento (board._track_moving), senza scatti fra i giri
 		var dur := 2.8
 		var t: float = max(replay_carry, 0.0)
@@ -1862,6 +1883,9 @@ func start_replay() -> void:
 				continue
 			t += get_process_delta_time() * replay_speed
 			var f: float = clamp(t / dur, 0.0, 1.0)   # velocità costante: il giro dopo riparte subito
+			while ev_i < evs.size() and float(evs[ev_i]["at"]) <= f:
+				replay_mines = _replay_gfx(evs[ev_i]["g"], replay_mines)
+				ev_i += 1
 			for pa in paths:
 				var mv: Dictionary = pa["mv"]
 				var pts: Array = pa["pts"]
@@ -1898,37 +1922,9 @@ func start_replay() -> void:
 				if k > 0:
 					dv = (course.cells[sp]["pos"] - course.cells[pth[k - 1]]["pos"]).normalized()
 				board.knock_sapling(int(sp), dv)
-		# effetti dei gadget del turno: laser, missili, mine, blast, arpione
-		var any_gfx := false
-		for mv in moves:
-			var p = game.players[mv["pid"]]
-			p.L = int(mv.get("L", p.L))
-			p.R = int(mv.get("R", p.R))
-			for g in mv.get("gfx", []):
-				any_gfx = true
-				match String(g.get("k", "")):
-					"laser":
-						board.laser_fx(int(g["pid"]), String(g["res"]))
-					"mine":
-						replay_mines.erase(int(g["cell"]))
-						board.explosion_fx(int(g["cell"]))
-					"drop":
-						replay_mines[int(g["cell"])] = true
-					"missile":
-						board.missile_fx(g.get("cells", []), String(g.get("res", "")), int(g.get("pid", -1)))
-					"blast":
-						board.blast_fx(int(g["pid"]), int(g["to"]))
-					"hook":
-						board.hook_fx(int(g["pid"]), int(g["to"]))
-					"boost":
-						board.boost_fx(int(g["pid"]))
-		board.mine_cells = replay_mines.keys()
-		if any_gfx and not replay_stop:
-			var wt := 0.0
-			while wt < 0.9 and not replay_stop:
-				await get_tree().process_frame
-				if not replay_paused:
-					wt += get_process_delta_time() * replay_speed
+		while ev_i < evs.size():
+			replay_mines = _replay_gfx(evs[ev_i]["g"], replay_mines)
+			ev_i += 1
 		for mv in moves:
 			var p = game.players[mv["pid"]]
 			p.cell = mv["end"] if not mv["wrecked"] else -1
@@ -2622,7 +2618,7 @@ func _render_top() -> void:
 		pc.add_theme_stylebox_override("panel", UIKit.box(UIKit.SOFT, 9, border, 2, 3))
 		pc.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		var t: String = ("KO " if p.wrecked else str(order.find(p) + 1) + " ") + p.name
-		if game.invisible(p) and _viewer() != p:
+		if game.invisible(p) and _viewer() != p and phase != "replay" and phase != "over":
 			t = "? " + p.name + "  invisibile"
 		elif p.dents > 0:
 			t += "  D%d" % p.dents
@@ -3863,3 +3859,26 @@ func _energy_wait_text() -> String:
 	if miss.is_empty():
 		return "Tutti hanno scelto: si parte!"
 	return "Scelta dei gadget in segreto. Mancano: [b]%s[/b]%s" % [", ".join(miss), ("; pronti: " + ", ".join(done)) if not done.is_empty() else ""]
+
+## Un effetto di gadget nel replay (senza attese): restituisce le mine aggiornate.
+func _replay_gfx(g: Dictionary, mines_now: Dictionary) -> Dictionary:
+	match String(g.get("k", "")):
+		"laser":
+			board.laser_fx(int(g["pid"]), String(g["res"]))
+		"mine":
+			mines_now.erase(int(g["cell"]))
+			board.explosion_fx(int(g["cell"]))
+		"drop":
+			mines_now[int(g["cell"])] = true
+		"missile":
+			board.missile_fx(g.get("cells", []), String(g.get("res", "")), int(g.get("pid", -1)))
+		"blast":
+			board.blast_fx(int(g["pid"]), int(g["to"]))
+		"hook":
+			board.hook_fx(int(g["pid"]), int(g["to"]))
+		"boost":
+			board.boost_fx(int(g["pid"]))
+	if String(g.get("k", "")) in ["mine", "drop"]:
+		board.mine_cells = mines_now.keys()
+		board.redraw()
+	return mines_now
