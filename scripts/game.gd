@@ -1144,6 +1144,7 @@ func _missile(p: Player, from_cell: int, range_n: int, msgs: Array) -> Dictionar
 		if invisible(q):
 			occ.erase(q.cell)
 	var deflected := 0
+	var defl := []            # [indice della casella, id] delle deviazioni (per l'animazione)
 	while left > 0:
 		var n := _straight(c)
 		if n < 0:
@@ -1157,7 +1158,7 @@ func _missile(p: Player, from_cell: int, range_n: int, msgs: Array) -> Dictionar
 			var cm := level(q.al, "cm")
 			if cm >= 2:
 				msgs.append("le CME di %s fanno esplodere il missile" % q.name)
-				return {"cells": cells, "res": "boom", "pid": q.id}
+				return {"cells": cells, "res": "boom", "pid": q.id, "defl": defl}
 			if cm == 1 and deflected < 2:
 				deflected += 1
 				var side := "side_l" if rng.randf() < 0.5 else "side_r"
@@ -1165,21 +1166,22 @@ func _missile(p: Player, from_cell: int, range_n: int, msgs: Array) -> Dictionar
 				if s2 < 0:
 					s2 = int(cell(c).get("side_r" if side == "side_l" else "side_l", -1))
 				msgs.append("le CME di %s deviano il missile" % q.name)
+				defl.append([cells.size() - 1, q.id])
 				occ.erase(c)
 				if s2 < 0:
-					return {"cells": cells, "res": "wall"}
+					return {"cells": cells, "res": "wall", "defl": defl}
 				c = s2
 				cells.append(c)
 				continue
 			var sh := level(q.al, "sh")
 			if sh > 0 and rng.randf() < 0.2 * sh:
 				msgs.append("lo scudo di %s regge al missile" % q.name)
-				return {"cells": cells, "res": "shield", "pid": q.id}
+				return {"cells": cells, "res": "shield", "pid": q.id, "defl": defl}
 			add_half_dent(q)
 			msgs.append("il missile colpisce %s (mezzo danno)%s" % [q.name, ": va in pezzi!" if q.wrecked else ""])
-			return {"cells": cells, "res": "hit", "pid": q.id}
+			return {"cells": cells, "res": "hit", "pid": q.id, "defl": defl}
 	msgs.append("il missile si perde nel canyon")
-	return {"cells": cells, "res": "miss"}
+	return {"cells": cells, "res": "miss", "defl": defl}
 
 func _straight_back(c: int) -> int:
 	var bw: Array = cell(c).get("bwd", [])
@@ -1199,9 +1201,11 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 	var bo := level(p.al, "bo")
 	if bo > 0 and not path.is_empty():
 		msgs.append("postbruciatore (+%d)" % bo)
-		gfx.append({"k": "boost", "pid": p.id})
+		gfx.append({"k": "boost", "pid": p.id, "lv": bo})
 	if p.drag > 0:
 		msgs.append("trattenuta dall'arpione (−%d)" % p.drag)
+	if p.al.has("hot"):
+		gfx.append({"k": "hook", "pid": p.id, "to": int(p.al["hot"]), "lv": level(p.al, "ho")})
 	# mine sul percorso (tranne le proprie)
 	var boom := []
 	for t in path:
@@ -1240,6 +1244,7 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 			continue
 		if invisible(p):
 			msgs.append("il cecchino di %s non la trova: è invisibile" % q.name)
+			gfx.append({"k": "laser", "by": q.id, "pid": p.id, "res": "invisible"})
 			continue
 		var ch := sniper_chance(level(q.al, "sn"), spd, int(ei[0]), level(p.al, "sh"))
 		var hit := rng.randf() < ch
@@ -1289,7 +1294,7 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 			if crashed:
 				add_half_dent(t)
 			msgs.append("il blast ionico sposta %s di %d corsi%s%s" % [t.name, moved, "a" if moved == 1 else "e", " contro il bordo (mezzo danno a lei)" if crashed else ""])
-			gfx.append({"k": "blast", "pid": p.id, "to": t.id, "from": from_c, "cell": c})
+			gfx.append({"k": "blast", "pid": p.id, "to": t.id, "from": from_c, "cell": c, "crash": crashed, "n": moved})
 	if halves > 0:
 		o["ghalf"] = halves
 	o["gfx"] = gfx

@@ -57,7 +57,8 @@ func _run() -> void:
 	await shot("07_dest")
 	main.board.laser_fx(main.game.players[2].id, "hit")
 	main.board.laser_fx(main.game.players[1].id, "shield")
-	await wait(0.12)
+	main.board.laser_fx(main.game.players[3].id, "miss")
+	await wait(0.35)
 	await shot("07b_laser")
 	if main.phase == "dest":
 		main._apply_choice(main.pending.duplicate(), main.outs[main.outs.size() - 1])

@@ -1490,7 +1490,10 @@ func _energy_finish() -> void:
 	for h in game.apply_hooks():
 		parts.append("[b]%s[/b] aggancia [b]%s[/b] con l'arpione (−%d)" % [h["by"].name, h["to"].name, h["lv"]])
 		if not online.get("catchup", false):
-			board.hook_fx(h["by"].id, h["to"].id)
+			board.hook_fx(h["by"].id, h["to"].id, int(h["lv"]))
+	var me = _viewer()
+	if me != null and game.invisible(me) and not online.get("catchup", false):
+		board.popup(board.ship_pos(me.id), "INVISIBILE", Color("9fd8ff"))
 	game.log_text = "Gadget scelti in segreto: si parte!" + (" " + ";  ".join(parts) if not parts.is_empty() else "")
 	board.redraw()
 	_begin_moves()
@@ -3666,10 +3669,7 @@ func _energy_panel() -> VBoxContainer:
 	var left: int = cur.energy - cost
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 10)
-	var hl := UIKit.heading("Punti gadget", 16)
-	hl.autowrap_mode = TextServer.AUTOWRAP_OFF
-	hl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	head.add_child(hl)
+	head.add_child(_gadget_img("punti", 36))
 	var ll := UIKit.label("restano %d di %d" % [left, cur.energy], 15, UIKit.INK)
 	ll.autowrap_mode = TextServer.AUTOWRAP_OFF
 	ll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -3688,7 +3688,7 @@ func _energy_panel() -> VBoxContainer:
 	var low: bool = _is_landscape() and get_viewport().get_visible_rect().size.y < 780
 	for cat in SledGame.CATEGORIES:
 		if not low:
-			v.add_child(UIKit.heading(cat, 13))
+			v.add_child(_gadget_img("cat_" + String(cat).to_lower(), 26))
 		for k in SledGame.GADGET_ORDER:
 			if String(SledGame.GADGETS[k][1]) != cat:
 				continue
@@ -3721,15 +3721,16 @@ func _energy_panel() -> VBoxContainer:
 func _gadget_row(k: String, left: int) -> HBoxContainer:
 	var r := HBoxContainer.new()
 	r.add_theme_constant_override("separation", 4)
-	var nb := Button.new()
-	nb.text = SledGame.gadget_name(k)
-	nb.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	nb.custom_minimum_size = Vector2(130, 27)
+	var cur_on := SledGame.level(en_draft, k) > 0
+	var nb := TextureButton.new()
+	nb.texture_normal = _gadget_tex(k)
+	nb.ignore_texture_size = true
+	nb.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT
+	nb.custom_minimum_size = Vector2(180, 31)
 	nb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	nb.clip_text = true
-	nb.add_theme_font_size_override("font_size", 15)
-	nb.add_theme_font_override("font", UIKit.font(UIKit.F_BOLD))
-	UIKit.style_button(nb, Color(0, 0, 0, 0), UIKit.INK, Color(0, 0, 0, 0), 0, 8)
+	nb.tooltip_text = SledGame.gadget_name(k)
+	# il riquadro si accende quando il gadget è scelto
+	nb.modulate = Color(1, 1, 1, 1) if cur_on else Color(0.62, 0.66, 0.74, 0.9)
 	nb.pressed.connect(func():
 		en_info = "[b]%s[/b]: %s." % [SledGame.gadget_name(k), SledGame.GADGETS[k][2]]
 		_refresh())
@@ -3738,8 +3739,8 @@ func _gadget_row(k: String, left: int) -> HBoxContainer:
 	for lv in range(1, SledGame.max_level(k) + 1):
 		var b := Button.new()
 		b.text = str(lv)
-		b.custom_minimum_size = Vector2(46, 27)
-		b.add_theme_font_size_override("font_size", 15)
+		b.custom_minimum_size = Vector2(44, 31)
+		b.add_theme_font_size_override("font_size", 16)
 		b.add_theme_font_override("font", UIKit.font(UIKit.F_BOLD))
 		var on := lv == cur_lv
 		b.disabled = not on and lv - cur_lv > left
@@ -3838,14 +3839,13 @@ func _play_gadget_fx(gfx: Array) -> void:
 				board.emp_fx(int(g["cell"]))
 				await _pause(0.45)
 			"hook":
-				board.hook_fx(int(g["pid"]), int(g["to"]))
-				await _pause(0.35)
+				pass    # l'arpione si vede già a inizio turno (nel replay sì, all'inizio della corsa)
 			"boost":
-				board.boost_fx(int(g["pid"]))
+				board.boost_fx(int(g["pid"]), int(g.get("lv", 1)))
 			"missile":
-				await board.missile_fx(g.get("cells", []), String(g.get("res", "")), int(g.get("pid", -1)))
+				await board.missile_fx(g.get("cells", []), String(g.get("res", "")), int(g.get("pid", -1)), g.get("defl", []))
 			"blast":
-				board.blast_fx(int(g["pid"]), int(g["to"]))
+				board.blast_fx(int(g["pid"]), int(g["to"]), bool(g.get("crash", false)), int(g.get("n", 1)))
 				await _pause(0.4)
 	_sync_gadget_view()
 	board.redraw()
@@ -3871,14 +3871,35 @@ func _replay_gfx(g: Dictionary, mines_now: Dictionary) -> Dictionary:
 		"drop":
 			mines_now[int(g["cell"])] = true
 		"missile":
-			board.missile_fx(g.get("cells", []), String(g.get("res", "")), int(g.get("pid", -1)))
+			board.missile_fx(g.get("cells", []), String(g.get("res", "")), int(g.get("pid", -1)), g.get("defl", []))
 		"blast":
-			board.blast_fx(int(g["pid"]), int(g["to"]))
+			board.blast_fx(int(g["pid"]), int(g["to"]), bool(g.get("crash", false)), int(g.get("n", 1)))
 		"hook":
-			board.hook_fx(int(g["pid"]), int(g["to"]))
+			board.hook_fx(int(g["pid"]), int(g["to"]), int(g.get("lv", 1)))
 		"boost":
-			board.boost_fx(int(g["pid"]))
+			board.boost_fx(int(g["pid"]), int(g.get("lv", 1)))
 	if String(g.get("k", "")) in ["mine", "drop"]:
 		board.mine_cells = mines_now.keys()
 		board.redraw()
 	return mines_now
+
+# ---------- token grafici dei gadget ----------
+static var _gtex := {}
+func _gadget_tex(k: String) -> Texture2D:
+	if not _gtex.has(k):
+		var p := "res://assets/gadgets/%s.webp" % k
+		_gtex[k] = load(p) if ResourceLoader.exists(p) else null
+	return _gtex[k]
+
+## Riquadro grafico (intestazioni e categorie) alto h, allineato a sinistra.
+func _gadget_img(k: String, h: int) -> TextureRect:
+	var t := TextureRect.new()
+	t.texture = _gadget_tex(k)
+	t.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	t.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
+	var tex := t.texture
+	var w: float = float(h) * (float(tex.get_width()) / float(tex.get_height())) if tex else 120.0
+	t.custom_minimum_size = Vector2(w, h)
+	t.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return t

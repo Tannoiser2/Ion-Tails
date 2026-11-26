@@ -48,6 +48,13 @@ Il resto è Snow Tails: carte 1-5, motori a 3 all'inizio, curve con limite, bord
 massi, dune e crepacci, salto della gola. Nei segmenti fanmade il vento diventa **tempesta di sabbia**,
 la neve fresca **sabbia**, il ghiaccio **vetro** e la baita un'**officina**.
 
+## Token dei gadget ed esiti
+I riquadri dei gadget nel pannello sono i token disegnati (`assets/gadgets/<chiave>.webp`, tagliati
+dal foglio con tutti i token); quello scelto si accende. Ogni effetto ha un avviso sulla pista: scritta
+che sale (COLPITA, MANCATA, SCUDO, MINA!, MISSILE A SEGNO, CME: DEVIATO / ESPLOSO, BLAST, ARPIONE,
+POSTBRUCIATORE, INVISIBILE), piccola esplosione quando un colpo va a segno, bolla traslucida dello
+scudo quando para un colpo.
+
 ## Navette
 I modelli sono i 5 GLB fatti con Meshy (`Desktop/Ludoteca/Ion Tails`), ridotti a 30.000 triangoli con
 texture 1024 e raddrizzati (`tools/navette_glb.py`): `assets/models/ship_<colore>.glb`, con le posizioni

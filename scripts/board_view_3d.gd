@@ -948,7 +948,44 @@ func ship_pos(pid: int) -> Vector3:
 		return (_teams[pid]["node"] as Node3D).position + Vector3(0, 0.12, 0)
 	return Vector3.ZERO
 
-## Raggio laser del cecchino dal canyon verso la navetta; res: "hit", "shield", "smoke", "decoy".
+## Scritta che sale e svanisce sopra un punto: l'esito di un gadget a colpo d'occhio.
+const C_HIT := Color("ff6a3a")
+const C_BLOCK := Color("6fe3ff")
+const C_MISS := Color("c9ccd4")
+const C_GOOD := Color("ffd36b")
+var _popups: Array = []      # [ms, posizione] delle scritte recenti
+func popup(at: Vector3, text: String, col: Color) -> void:
+	var lb := Label3D.new()
+	lb.text = text
+	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lb.no_depth_test = true
+	lb.font_size = 46
+	lb.outline_size = 12
+	# grandezza costante sullo schermo: cresce con la distanza della telecamera
+	lb.pixel_size = clamp(0.0007 * dist, 0.0025, 0.012)
+	lb.modulate = col
+	lb.outline_modulate = Color(0.05, 0.04, 0.08, 0.95)
+	var rise: float = clamp(0.07 * dist, 0.35, 1.0)
+	# scritte vicine e quasi contemporanee: una sopra l'altra, senza sovrapporsi
+	var now := Time.get_ticks_msec()
+	var stack := 0
+	for q in _popups:
+		if now - int(q[0]) < 900 and (q[1] as Vector3).distance_to(at) < 0.25 * dist:
+			stack += 1
+	_popups.append([now, at])
+	if _popups.size() > 30:
+		_popups.pop_front()
+	lb.position = at + Vector3(0, rise * (1.0 + 0.55 * stack), 0)
+	_fx.add_child(lb)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(lb, "position:y", lb.position.y + rise, 1.6)
+	tw.tween_property(lb, "modulate:a", 0.0, 0.6).set_delay(1.0)
+	tw.chain().tween_callback(lb.queue_free)
+
+## Raggio laser del cecchino dal canyon verso la navetta.
+## res: "hit" (piccola esplosione), "shield" (bolla dello scudo), "miss" (colpo a vuoto),
+## "invisible" (il cecchino spara alla cieca), "decoy".
 func laser_fx(pid: int, res: String) -> void:
 	var to := ship_pos(pid)
 	var ni := _nest_near(to)
@@ -960,11 +997,13 @@ func laser_fx(pid: int, res: String) -> void:
 			var d := to - nn.global_position
 			nn.rotation.y = atan2(-d.x, -d.z)
 	var end := to
-	if res == "smoke" or res == "decoy" or res == "miss":
-		end = to + (from - to).normalized() * 0.25 + Vector3(randf_range(-0.3, 0.3), 0.1, randf_range(-0.3, 0.3))
+	if res in ["miss", "invisible", "smoke", "decoy"]:
+		end = to + Vector3(randf_range(-0.45, 0.45), -0.1, randf_range(-0.45, 0.45))
+	elif res == "shield":
+		end = to + (from - to).normalized() * 0.32
 	var beam := MeshInstance3D.new()
-	beam.mesh = TeamModel.cyl(0.012, 0.012, 1.0, 6)
-	var bm := TeamModel.glow(Color("ff4a3a"), 2.0, 0.9)
+	beam.mesh = TeamModel.cyl(0.014, 0.014, 1.0, 6)
+	var bm := TeamModel.glow(Color("ff4a3a"), 2.0, 0.95)
 	beam.material_override = bm
 	var d3 := end - from
 	var up := d3.normalized()
@@ -976,17 +1015,28 @@ func laser_fx(pid: int, res: String) -> void:
 	beam.position = (from + end) * 0.5
 	_fx.add_child(beam)
 	var tw := create_tween()
-	tw.tween_property(bm, "albedo_color:a", 0.0, 0.5).set_delay(0.18)
+	tw.tween_property(bm, "albedo_color:a", 0.0, 0.5).set_delay(0.2)
 	tw.tween_callback(beam.queue_free)
+	spark(from, Color("ff8a6a"), 0.4)
 	match res:
 		"hit":
-			spark(end, Color("ffb066"))
+			_blast_at(to, 0.55)
 			if _teams.has(pid):
-				(_teams[pid]["node"] as TeamModel).shake(0.8)
+				(_teams[pid]["node"] as TeamModel).shake(0.9)
+			popup(to, "COLPITA", C_HIT)
 		"shield":
 			flash_shield(pid)
+			spark(end, C_BLOCK, 0.9)
+			popup(to, "SCUDO", C_BLOCK)
+		"invisible":
+			puff(end, 0.5)
+			popup(from, "BERSAGLIO INVISIBILE", C_MISS)
 		"decoy":
 			hologram(to)
+		_:
+			puff(end, 0.6)
+			spark(end, Color("ffb066"), 0.5)
+			popup(to, "MANCATA", C_MISS)
 
 ## Scintille e piccolo lampo.
 func spark(at: Vector3, col: Color, power := 1.0) -> void:
@@ -1031,16 +1081,26 @@ func explosion_fx(cell_id: int) -> void:
 	tw.chain().tween_callback(fl.queue_free)
 	spark(at, Color("ffcc66"), 1.6)
 	puff(at, 1.5)
+	popup(at, "MINA!", C_HIT)
 
-## Il colpo si spegne sullo scudo: la bolla lampeggia.
+## Il colpo si spegne sullo scudo: bolla traslucida attorno alla navetta per un secondo.
 func flash_shield(pid: int) -> void:
 	if not _teams.has(pid):
 		return
 	var node: TeamModel = _teams[pid]["node"]
-	var was := node.shield_on
-	node.set_shield(true)
+	var b := MeshInstance3D.new()
+	b.mesh = TeamModel.sph(0.5)
+	var m := TeamModel.glow(Color("58d8ff"), 0.9, 0.32)
+	b.material_override = m
+	b.scale = Vector3(0.62, 0.36, 0.92) * 0.85
+	b.position = Vector3(0, 0.16, 0)
+	node.add_child(b)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(b, "scale", Vector3(0.62, 0.36, 0.92) * 1.05, 0.25)
+	tw.tween_property(m, "albedo_color:a", 0.0, 0.6).set_delay(0.9)
+	tw.chain().tween_callback(b.queue_free)
 	spark(ship_pos(pid), Color("7fe8ff"), 0.8)
-	get_tree().create_timer(0.6).timeout.connect(func(): node.set_shield(was or (show_al and game != null and game.player_by_id(pid) != null and game.player_by_id(pid).al.has("sh"))))
 
 ## Esca olografica: una sagoma trasparente che si dissolve.
 func hologram(at: Vector3) -> void:
@@ -1066,7 +1126,7 @@ func emp_fx(cell_id: int) -> void:
 	spark(at, Color("8af6ff"), 1.2)
 
 ## Arpione: cavo luminoso fra due navette per un attimo.
-func hook_fx(pid: int, to_pid: int) -> void:
+func hook_fx(pid: int, to_pid: int, lv := 0) -> void:
 	var a := ship_pos(pid)
 	var b := ship_pos(to_pid)
 	var beam := MeshInstance3D.new()
@@ -1087,15 +1147,19 @@ func hook_fx(pid: int, to_pid: int) -> void:
 	var tw := create_tween()
 	tw.tween_property(bm, "albedo_color:a", 0.0, 0.7).set_delay(0.3)
 	tw.tween_callback(beam.queue_free)
+	if lv > 0:
+		popup(b, "ARPIONE −%d" % lv, C_GOOD)
 
 ## Postbruciatore: fiammata dai motori.
-func boost_fx(pid: int) -> void:
+func boost_fx(pid: int, lv := 1) -> void:
 	spark(ship_pos(pid), Color("7fe8ff"), 1.0)
+	popup(ship_pos(pid), "POSTBRUCIATORE +%d" % lv, C_GOOD)
 
 ## Missile: un piccolo razzo luminoso che segue le caselle; alla fine esplode o si spegne.
-func missile_fx(cells: Array, res: String, pid: int) -> void:
+func missile_fx(cells: Array, res: String, pid: int, defl: Array = []) -> void:
 	if cells.size() < 2:
 		return
+	defl = defl.duplicate(true)    # i dati restano intatti per il replay
 	var m := Node3D.new()
 	var body := MeshInstance3D.new()
 	body.mesh = TeamModel.caps(0.025, 0.12)
@@ -1119,6 +1183,10 @@ func missile_fx(cells: Array, res: String, pid: int) -> void:
 		t += get_process_delta_time()
 		var x: float = clamp(t / dur, 0.0, 1.0) * float(pts.size() - 1)
 		var k: int = min(int(floor(x)), pts.size() - 2)
+		while not defl.is_empty() and int(defl[0][0]) <= k:
+			var dd: Array = defl.pop_front()
+			spark(pts[int(dd[0])], Color("b48cff"), 1.0)
+			popup(pts[int(dd[0])], "CME: DEVIATO", C_BLOCK)
 		var a: Vector3 = pts[k]
 		var b: Vector3 = pts[k + 1]
 		m.position = a.lerp(b, x - k)
@@ -1134,16 +1202,23 @@ func missile_fx(cells: Array, res: String, pid: int) -> void:
 			_blast_at(end)
 			if _teams.has(pid):
 				(_teams[pid]["node"] as TeamModel).shake(1.0)
+			popup(end, "MISSILE A SEGNO", C_HIT)
 		"shield":
 			flash_shield(pid)
-		"boom", "wall":
-			_blast_at(end)
+			popup(end, "SCUDO", C_BLOCK)
+		"boom":
+			_blast_at(end, 0.7)
+			popup(end, "CME: ESPLOSO", C_BLOCK)
+		"wall":
+			_blast_at(end, 0.7)
+			popup(end, "MANCATO", C_MISS)
 		_:
 			puff(end, 0.6)
+			popup(end, "MANCATO", C_MISS)
 
-func _blast_at(at: Vector3) -> void:
+func _blast_at(at: Vector3, sz := 1.0) -> void:
 	var fl := MeshInstance3D.new()
-	fl.mesh = TeamModel.sph(0.2)
+	fl.mesh = TeamModel.sph(0.2 * sz)
 	var fm := TeamModel.glow(Color("ff9a3c"), 2.0, 0.85)
 	fl.material_override = fm
 	fl.position = at
@@ -1156,11 +1231,18 @@ func _blast_at(at: Vector3) -> void:
 	spark(at, Color("ffcc66"), 1.3)
 
 ## Blast ionico: onda azzurra dalla navetta verso quella spinta di lato.
-func blast_fx(pid: int, to_pid: int) -> void:
+func blast_fx(pid: int, to_pid: int, crash := false, n := 1) -> void:
 	hook_fx(pid, to_pid)
 	emp_fx_at(ship_pos(to_pid))
 	if _teams.has(to_pid):
 		(_teams[to_pid]["node"] as TeamModel).shake(0.8)
+	if crash:
+		_blast_at(ship_pos(to_pid), 0.5)
+		popup(ship_pos(to_pid), "BLAST: CONTRO IL BORDO", C_HIT)
+	elif n > 0:
+		popup(ship_pos(to_pid), "BLAST: SPOSTATA", C_GOOD)
+	else:
+		popup(ship_pos(to_pid), "BLAST: BLOCCATO", C_MISS)
 
 func emp_fx_at(at: Vector3) -> void:
 	var r := _ring(0.25, Color("8af6ff"), 0.03)
