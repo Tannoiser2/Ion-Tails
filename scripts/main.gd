@@ -485,9 +485,13 @@ func show_menu() -> void:
 	_menu_sim_row.add_theme_constant_override("separation", 8)
 	right.add_child(_menu_sim_row)
 	_menu_sim_lbl = UIKit.label("", 16, UIKit.MUTED)
-	_menu_sim_lbl.custom_minimum_size = Vector2(0, 96)
+	_menu_sim_lbl.custom_minimum_size = Vector2(0, 72)
 	_menu_sim_lbl.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	right.add_child(_menu_sim_lbl)
+	_menu_timer_row = HBoxContainer.new()
+	_menu_timer_row.add_theme_constant_override("separation", 8)
+	right.add_child(_menu_timer_row)
+	_menu_build_timer()
 	right.add_child(_online_box())
 	# in fondo: schermo intero e partenza
 	var acts := HBoxContainer.new()
@@ -564,6 +568,25 @@ func _menu_build_sim() -> void:
 		_menu_sim_row.add_child(vb2)
 	_menu_sim_lbl.text = ("Variante: tutti programmano la mossa, poi le navette partono insieme. Se due navette non possono evitarsi, passa la più veloce e l'altra si ferma con mezzo danno. Solo per le partite su questo dispositivo."
 		if sim_variant else "Regolamento: le navette muovono una alla volta, dalla prima all'ultima in classifica.")
+
+## Secondi per la scelta segreta dei gadget a ogni turno (0 = senza limite).
+var choice_secs := 30
+var _menu_timer_row: HBoxContainer
+func _menu_build_timer() -> void:
+	UIKit.clear(_menu_timer_row)
+	var vl := UIKit.heading("Tempo per i gadget")
+	vl.autowrap_mode = TextServer.AUTOWRAP_OFF
+	vl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_menu_timer_row.add_child(vl)
+	for opt in [[20, "20 s"], [30, "30 s"], [60, "60 s"], [0, "Senza"]]:
+		var b := UIKit.button(opt[1], choice_secs == opt[0])
+		b.custom_minimum_size = Vector2(84, 48)
+		b.size_flags_horizontal = 0
+		b.pressed.connect(func():
+			choice_secs = opt[0]
+			_menu_build_timer())
+		_menu_timer_row.add_child(b)
 
 func _menu_pick_course(i: int) -> void:
 	course_idx = i
@@ -799,7 +822,7 @@ func _menu_build_random() -> void:
 	fl.custom_minimum_size = Vector2(120, 0)
 	fl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	fr.add_child(fl)
-	for opt in [[false, "no"], [true, "sì: pendii, vento, vetro…"]]:
+	for opt in [[false, "no"], [true, "sì: pendii, tempeste, vetro…"]]:
 		var bf := UIKit.button(opt[1], rnd_fan == opt[0])
 		bf.custom_minimum_size = Vector2(0, 52)
 		bf.pressed.connect(func():
@@ -1059,30 +1082,34 @@ func show_help(force_fan := false) -> void:
 
 [b]La navetta.[/b] Un abitacolo trainato da due motori, più il freno: tutti a 3 all'inizio. Velocità = motore sinistro + motore destro − freno. Deriva = differenza fra i motori: ti sposti di lato verso il motore più forte (mai più della velocità), nei passi che scegli tu.
 
-[b]Il turno.[/b] Giochi da 1 a 3 carte dello stesso valore, al massimo una per spazio. Le carte sui motori restano; quella sul freno lo imposta e va negli scarti. Poi muovi e torni a 5 carte. I danni occupano posto in mano e non si scartano.
+[b]La mossa.[/b] Quando tocca a te giochi da 1 a 3 carte dello stesso valore, al massimo una per spazio. Le carte sui motori restano; quella sul freno lo imposta e va negli scarti. Poi muovi e torni a 5 carte. I danni occupano posto in mano e non si scartano.
 
-[b]Ordine.[/b] Muove prima chi è in testa, poi gli altri in ordine di posizione.
+[b]Ordine.[/b] A ogni turno muove prima chi è in testa, poi gli altri in ordine di posizione.
 
 [b]Equilibrio.[/b] Con i motori uguali puoi aggiungere un bonus pari alla tua posizione, tutto dritto, a fine movimento. Non al primo turno.
 
 [b]Pericoli.[/b] Curva oltre il limite: un danno per punto di troppo (il bonus conta). Bordo: ti fermi e prendi un danno. Tamponamento: ti fermi dietro e non peschi. Al quinto danno la navetta è distrutta.
 
-[b]Fine.[/b] Si corre finché tutte le navette hanno tagliato il traguardo. In classifica conta prima il giro in cui si taglia il traguardo, poi chi è andato più lontano oltre la linea."""))
-	c1.add_child(UIKit.heading("Energia e gadget"))
-	c1.add_child(_rule_text("""[b]L'energia.[/b] All'inizio di ogni giro ogni navetta in gara riceve %d punti energia (se ne accumulano al massimo %d). Prima di muovere, ognuno li assegna [b]in segreto[/b] ai gadget; poi tutte le scelte si rivelano insieme. Mine e radar restano segreti: si vede solo quanti gadget segreti ha preso ciascuno.
+[b]Fine.[/b] Si corre finché tutte le navette hanno tagliato il traguardo. In classifica conta prima il turno in cui si taglia il traguardo, poi chi è andato più lontano oltre la linea."""))
+	c1.add_child(UIKit.heading("Punti gadget"))
+	c1.add_child(_rule_text("""[b]La scorta.[/b] A inizio gara ogni navetta riceve una scorta di punti che dipende dalla lunghezza della pista (un punto ogni %d passi dalla partenza al traguardo): non se ne ricevono altri. Ogni punto speso è perso.
 
-[b]Cecchino (2).[/b] Dal canyon un cecchino spara alla navetta che scegli quando finisce la sua mossa: 1 danno. Se ne possono assoldare due per giro, anche sulla stessa navetta.
-[b]Scudo (1).[/b] Per tutto il giro i colpi dei cecchini non ti feriscono.
-[b]Esca olografica (1).[/b] Il primo colpo destinato a te finisce sulla navetta più vicina (che può pararlo con lo scudo o nel fumo).
-[b]Fumo (1).[/b] Le caselle che attraversi (non quella dove ti fermi) restano nel fumo fino alla fine del giro: chi ci si ferma è invisibile ai cecchini.
-[b]Mina (1).[/b] Sganci una mina nascosta sulla casella da cui parti: chi ci passa sopra prende 1 danno (tu no).
-[b]Radar (1).[/b] Per questo giro vedi tutte le mine in pista e la rotta le evita quando può.
-[b]Postbruciatore (1).[/b] +2 alla velocità di questa mossa: conta anche per i limiti delle curve.
-[b]Arpione (1).[/b] Se c'è una navetta fino a %d passi davanti a te, +1 alla tua velocità e lei avrà −1 alla prossima mossa.
-[b]Impulso EMP (2).[/b] A fine mossa le navette vicine scartano una carta a caso e perdono scudo ed esca.
-[b]Riparazione (2).[/b] Togli subito un danno.
+[b]La scelta segreta.[/b] All'inizio di ogni turno, prima di muovere, ognuno decide in segreto quanti punti investire (da 0 a 3 per gadget) in attacchi, difese e movimento, entro il tempo scelto nel menu (allo scadere vale la scelta fatta fin lì). Poi si muove come al solito; i gadget si scoprono quando agiscono.
 
-[b]Scia ionica (gratis).[/b] Se una navetta è proprio nella casella davanti a te quando parti, +1 alla velocità.""" % [SledGame.ENERGY_GAIN, SledGame.ENERGY_MAX, SledGame.HOOK_RANGE]))
+[b]Attacchi[/b]
+[b]Cecchino.[/b] Scegli un bersaglio: quando finisce la sua mossa il cecchino spara dal canyon. Mira = 30%% + 20%% per punto, −4%% per ogni punto di velocità del bersaglio oltre 4, −8%% per ogni corsia fra il bersaglio e la parete più vicina, −30%% per ogni punto di scudo. Colpo a segno: 1 danno.
+[b]Mine.[/b] Una mina per punto, sulle caselle che ti lasci dietro durante la mossa. Chi ci passa sopra prende 1 danno (tu no). Le mine restano finché qualcuno non ci passa.
+[b]Missile.[/b] A fine mossa spari un missile guidato dritto davanti, nella tua corsia: gittata 3 caselle più 2 per punto. Colpisce la prima navetta che incontra: 1 danno.
+
+[b]Difese[/b]
+[b]Scudo.[/b] Ogni punto toglie il 30%% alla mira dei cecchini, ma ferma i missili (che arrivano da dietro) solo il 15%% delle volte per punto.
+[b]Radar.[/b] Vedi le mine del settore (la tessera) in cui sei con 1 punto, anche del seguente con 2, dei due seguenti con 3. La rotta le evita quando può.
+[b]CME.[/b] Contromisure contro i missili: con 1 punto il missile cambia corsia una volta su due, con 2 cambia sempre corsia (e può colpire un'altra navetta), con 3 esplode.
+
+[b]Movimento[/b]
+[b]Postbruciatore.[/b] +1 velocità per punto in questa mossa (conta anche per i limiti delle curve).
+[b]Arpione.[/b] La navetta più vicina davanti a te (fino a %d passi) ha −1 velocità per punto in questo turno.
+[b]Blast ionico.[/b] A fine mossa spinge di lato la navetta più vicina davanti a te (fino a 3 passi) di una corsia per punto, verso il bordo più vicino: se ci sbatte prende 1 danno.""" % [int(SledGame.BUDGET_DIV), SledGame.HOOK_RANGE]))
 	c1.add_child(UIKit.heading("Varianti"))
 	c1.add_child(_rule_text("""[b]Simultaneo.[/b] Tutti programmano la mossa (carte e casella d'arrivo) senza vedere quella degli altri, poi le navette partono insieme: chi ha più caselle da fare va più veloce. Due navette non entrano mai nella stessa casella nello stesso momento: se possono la evitano, altrimenti entra la più veloce (a parità, chi era più avanti) e l'altra si ferma prima con mezzo danno.
 
@@ -1111,7 +1138,7 @@ Tastiera: 1–5 sceglie una carta; A, S, D (o frecce) la mettono su motore sinis
 		c2.add_child(_rule_item(_rule_img("res://assets/fan/sign_down.png", 64, 64), "Discesa", "Chi parte da una tessera in discesa guadagna 1 punto di velocità ogni %d: a 3 va a 4, a 6 va a 8, a 9 va a 12." % SledGame.DOWN_PER))
 		c2.add_child(_rule_item(_rule_img("res://assets/fan/sign_fresh.png", 64, 64), "Sabbia", "Ogni casella coi cumuli costa 2 punti di movimento; la prima navetta che ci passa la spazza via. I cumuli cambiano posto a ogni gara."))
 		c2.add_child(_rule_item(_rule_img("res://assets/fan/sign_ice.png", 64, 64), "Vetro", "Chi entra derivando continua a derivare finché è sul vetro; a fine movimento scivola avanti di una casella."))
-		c2.add_child(_rule_item(_rule_img("res://assets/fan/sign_wind.png", 64, 64), "Vento", "La forza è 1, 2 o 3 (a volte tirata a sorte a inizio gara). Vento di lato: chi parte dalla tessera ha tanta deriva in più nel verso della manica a vento, sommata a quella dei motori (o tolta, se va dall'altra parte); il bonus di equilibrio vale solo con deriva totale zero. Vento a favore: tanta velocità in più; vento contrario: tanta in meno."))
+		c2.add_child(_rule_item(_rule_img("res://assets/fan/sign_wind.png", 64, 64), "Tempesta di sabbia", "La forza è 1, 2 o 3 (a volte tirata a sorte a inizio gara). Vento di lato: chi parte dalla tessera ha tanta deriva in più nel verso della manica a vento, sommata a quella dei motori (o tolta, se va dall'altra parte); il bonus di equilibrio vale solo con deriva totale zero. Vento a favore: tanta velocità in più; vento contrario: tanta in meno."))
 		c2.add_child(_rule_item(_rule_img("res://assets/fan/sign_hut.png", 64, 64), "Officina", "Chi si ferma sulla casella accanto all'officina ripara metà dei danni (arrotondando a suo favore), ma non pesca."))
 		c2.add_child(_rule_item(_rule_img("res://assets/rules/fork_sign.png", 64, 64), "Bivio", "Uno sperone di roccia divide la pista in due rami con un numero diverso di caselle: da una parte sabbia, dall'altra massi."))
 	else:
@@ -1207,7 +1234,7 @@ func _tour_results() -> void:
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 10)
 	vb.add_child(UIKit.title("Gran Tour concluso" if last else "Gran Tour", 46))
-	vb.add_child(UIKit.label("Gara %d di %d: %s, dopo %d giri" % [i + 1, m, course.title, game.round_n], 19, UIKit.MUTED))
+	vb.add_child(UIKit.label("Gara %d di %d: %s, dopo %d turni" % [i + 1, m, course.title, game.round_n], 19, UIKit.MUTED))
 	var cols: BoxContainer = HBoxContainer.new() if _is_landscape() else VBoxContainer.new()
 	cols.add_theme_constant_override("separation", 24)
 	var a := VBoxContainer.new()
@@ -1350,10 +1377,15 @@ func _begin_round() -> void:
 		_in_energy = true
 		energy_list = []
 		for p in game.race_order():
-			if game.racing(p):
+			if game.racing(p) and p.energy > 0:
 				energy_list.append(p)
 		ei = 0
-		_energy_next()
+		if energy_list.is_empty():
+			_energy_finish()
+		elif not online.is_empty() and not online.get("over", false):
+			_energy_round_online(race_id)
+		else:
+			_energy_next()
 		return
 	_begin_moves()
 
@@ -1365,13 +1397,17 @@ func _begin_moves() -> void:
 	game.oi = 0
 	_next_turn()
 
-# ---------- Ion Tails: fase dell'energia ----------
-## Ogni navetta in gara sceglie in segreto i gadget del giro (le CPU subito, le persone dalla
-## propria plancia); poi tutto si rivela insieme, tranne mine e radar.
+# ---------- Ion Tails: fase dei gadget ----------
+## A ogni turno ogni navetta che ha ancora punti decide in segreto quanti investirne nei gadget
+## (le CPU subito, le persone dalla propria plancia, entro choice_secs secondi). Online tutti
+## scelgono nello stesso momento; sullo stesso dispositivo uno alla volta, dietro la copertina.
 var energy_list: Array = []
 var ei := 0
 var en_draft := {}              # scelta in corso della persona di turno
 var en_info := ""               # descrizione dell'ultimo gadget toccato
+var en_deadline := 0            # ticks in ms della fine del tempo (0 = senza limite)
+var en_base := 0                # online: numero della prima scelta del turno
+var en_done := {}               # online: id -> scelta già arrivata
 
 func _local_humans() -> int:
 	var n := 0
@@ -1383,39 +1419,51 @@ func _local_humans() -> int:
 func _energy_next() -> void:
 	var my := race_id
 	if ei >= energy_list.size():
-		_energy_reveal()
+		_energy_finish()
 		return
 	cur = energy_list[ei]
 	pending = []
 	sel = -1
 	outs = []
 	board.destinations = []
-	var ctl := await _ctl(cur)
-	if my != race_id:
-		return
-	if await _take_backlog():
-		return
-	if ctl == "cpu":
+	if cur.ai:
 		phase = "energyAI"
 		_refresh()
-		await _pause(0.2)
+		await _pause(0.15)
 		if my != race_id:
 			return
-		_do_act({"k": "en", "a": game.ai_alloc(cur)})
-	elif ctl == "me":
-		if online.is_empty() and _local_humans() > 1:
-			await _sim_curtain(cur, "Scegli in segreto i gadget del giro. Gli altri non guardino: le scelte si rivelano tutte insieme (mine e radar restano segreti).")
-			if my != race_id:
-				return
-		en_draft = {}
-		en_info = ""
-		board.focus_cell(cur.cell)
-		phase = "energy"
-		_refresh()
-	else:
-		phase = "wait"
-		_refresh()
-		_wait_act("en")
+		_apply_act({"k": "en", "a": game.ai_alloc(cur)})
+		return
+	if _local_humans() > 1:
+		await _sim_curtain(cur, "Decidi in segreto quanti punti investire nei gadget. Gli altri non guardino.")
+		if my != race_id:
+			return
+	_energy_open()
+
+## Apre il pannello dei gadget per cur (con il conto alla rovescia).
+func _energy_open() -> void:
+	en_draft = {}
+	en_info = ""
+	en_deadline = Time.get_ticks_msec() + choice_secs * 1000 if choice_secs > 0 else 0
+	board.focus_cell(cur.cell)
+	phase = "energy"
+	_refresh()
+	_energy_clock(race_id, cur)
+
+## Conto alla rovescia: aggiorna l'etichetta e, allo scadere, conferma la scelta com'è.
+var _en_clock_lbl: Label = null
+func _energy_clock(my: int, who) -> void:
+	while en_deadline > 0 and my == race_id and phase == "energy" and cur == who:
+		var left := int(ceil((en_deadline - Time.get_ticks_msec()) / 1000.0))
+		if is_instance_valid(_en_clock_lbl):
+			_en_clock_lbl.text = "%d s" % max(left, 0)
+			_en_clock_lbl.add_theme_color_override("font_color", UIKit.DANGER if left <= 5 else UIKit.HEAD)
+		if left <= 0:
+			if not game.alloc_ok(cur, en_draft):
+				en_draft = {}
+			_energy_confirm()
+			return
+		await get_tree().create_timer(0.25).timeout
 
 ## Conferma della scelta della persona di turno.
 func _energy_confirm() -> void:
@@ -1423,27 +1471,133 @@ func _energy_confirm() -> void:
 		return
 	var a := en_draft.duplicate(true)
 	if not game.alloc_ok(cur, a):
-		en_info = "Non hai abbastanza energia."
+		en_info = "Non hai abbastanza punti, oppure manca il bersaglio del cecchino."
 		_refresh()
 		return
-	_do_act({"k": "en", "a": a})
+	if not online.is_empty() and not online.get("over", false):
+		_energy_post_mine(a)
+		return
+	_apply_act({"k": "en", "a": a})
 
-## Tutte le scelte si scoprono: un riepilogo resta un attimo sullo schermo, poi si corre.
-func _energy_reveal() -> void:
-	var my := race_id
+## Tutti hanno scelto: l'arpione agisce subito, poi si corre.
+func _energy_finish() -> void:
 	cur = null
-	phase = "reveal"
 	_in_energy = false
 	var parts := []
-	for r in game.reveal_lines():
-		parts.append("[b]%s[/b]: %s" % [r["p"].name, r["text"]])
-	game.log_text = "Gadget del giro " + str(game.round_n) + " — " + ";  ".join(parts)
+	for h in game.apply_hooks():
+		parts.append("[b]%s[/b] aggancia [b]%s[/b] con l'arpione (−%d)" % [h["by"].name, h["to"].name, h["lv"]])
+		if not online.get("catchup", false):
+			board.hook_fx(h["by"].id, h["to"].id)
+	game.log_text = "Gadget scelti in segreto: si parte!" + (" " + ";  ".join(parts) if not parts.is_empty() else "")
 	board.redraw()
-	_refresh()
-	await _pause(2.4 if not _all_cpu() else 1.2)
-	if my != race_id or game.over:
-		return
 	_begin_moves()
+
+# ---------- online: scelte in parallelo ----------
+## Ogni navetta che sceglie ha il suo numero nel registro (en_base + posizione): ognuno scrive
+## la propria, chi ha creato la stanza quelle delle CPU e di chi non risponde.
+func _energy_round_online(my: int) -> void:
+	en_base = int(online["n"])
+	en_done = {}
+	var code: String = online["code"]
+	var mine = null
+	for p in energy_list:
+		if _is_mine(p):
+			mine = p
+	cur = null
+	phase = "simwait"
+	_refresh()
+	if online["role"] == "host":
+		for k in energy_list.size():
+			var p = energy_list[k]
+			if p.ai and _backlog_at(en_base + k).is_empty():
+				await _post_energy(en_base + k, p, game.ai_alloc(p))
+				if my != race_id:
+					return
+	if mine != null and not en_done.has(mine.id) and _backlog_at(en_base + energy_list.find(mine)).is_empty():
+		cur = mine
+		_energy_open()
+	var t0 := Time.get_ticks_msec()
+	var seen := {}
+	var polls := 0
+	while true:
+		if my != race_id or online.is_empty():
+			return
+		var missing := 0
+		for k in energy_list.size():
+			var p = energy_list[k]
+			if en_done.has(p.id):
+				continue
+			var a := _backlog_at(en_base + k)
+			if a.is_empty():
+				a = await net.get_act(code, en_base + k)
+				if my != race_id or online.is_empty():
+					return
+			if en_done.has(p.id):
+				continue
+			if not a.is_empty() and not a.has("_err"):
+				en_done[p.id] = a.get("a", {}) if a.get("a") is Dictionary else {}
+				if p == mine and phase == "energy":
+					cur = null
+					phase = "simwait"
+					game.log_text = "Eri via: il computer ha scelto al tuo posto."
+				_refresh()
+				continue
+			missing += 1
+			# chi ha creato la stanza: oltre il tempo (più un margine) sceglie il computer
+			if online["role"] == "host" and not p.ai and p != mine and polls % 4 == 0:
+				var late := choice_secs > 0 and Time.get_ticks_msec() - t0 > (choice_secs + 15) * 1000
+				if late or await _sim_away(p, t0, seen):
+					if my != race_id:
+						return
+					await _post_energy(en_base + k, p, {})
+					if my != race_id:
+						return
+					_refresh()
+		if missing == 0:
+			break
+		if online.get("catchup", false) and en_base + energy_list.size() > (online.get("backlog", []) as Array).size():
+			online["catchup"] = false
+			_refresh()
+		polls += 1
+		await _pause(1.0)
+	online["n"] = en_base + energy_list.size()
+	if online.get("catchup", false) and int(online["n"]) >= (online.get("backlog", []) as Array).size():
+		online["catchup"] = false
+	for p in energy_list:
+		game.apply_alloc(p, en_done.get(p.id, {}))
+	_energy_finish()
+
+## La propria scelta online: si pubblica e si aspettano gli altri.
+func _energy_post_mine(a: Dictionary) -> void:
+	var p = cur
+	cur = null
+	phase = "simwait"
+	_refresh()
+	await _post_energy(en_base + energy_list.find(p), p, a)
+	_refresh()
+
+## Pubblica la scelta di p al numero idx; se c'è già (scritta da altri), vale quella.
+func _post_energy(idx: int, p, a: Dictionary) -> void:
+	var my := race_id
+	var act := {"k": "en", "a": a, "s": p.seat}
+	while true:
+		var ok := await net.post_act(online["code"], idx, act)
+		if my != race_id or online.is_empty():
+			return
+		if ok:
+			en_done[p.id] = a
+			return
+		var ex := await net.get_act(online["code"], idx)
+		if my != race_id or online.is_empty():
+			return
+		if not ex.is_empty() and not ex.has("_err"):
+			en_done[p.id] = ex.get("a", {}) if ex.get("a") is Dictionary else {}
+			return
+		game.log_text = "Rete non raggiungibile, riprovo… (%s)" % net.last_error
+		_refresh()
+		await get_tree().create_timer(2.0).timeout
+		if my != race_id or online.is_empty():
+			return
 
 func _all_cpu() -> bool:
 	for p in game.players:
@@ -1558,7 +1712,7 @@ func _show_results() -> void:
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 10)
 	vb.add_child(UIKit.title("Classifica", 48))
-	vb.add_child(UIKit.label("Dopo %d giri" % game.round_n, 20, UIKit.MUTED))
+	vb.add_child(UIKit.label("Dopo %d turni" % game.round_n, 20, UIKit.MUTED))
 	var i := 0
 	for r in game.results:
 		i += 1
@@ -1671,7 +1825,7 @@ func start_replay() -> void:
 		if replay_stop:
 			break
 		replay_round = r + 1
-		game.log_text = "[b]Replay[/b] — giro %d di %d" % [replay_round, total]
+		game.log_text = "[b]Replay[/b] — turno %d di %d" % [replay_round, total]
 		_refresh()
 		var moves: Array = game.history[r]
 		# percorsi in coordinate 3D e lunghezze
@@ -2400,7 +2554,7 @@ func _render_top() -> void:
 	# 1. giro e turno
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
-	var rnd := UIKit.label("Schieramento" if phase.begins_with("slots") else ("Replay %d/%d" % [replay_round, game.history.size()] if phase == "replay" else "Giro %d" % game.round_n), 16, UIKit.INK)
+	var rnd := UIKit.label("Schieramento" if phase.begins_with("slots") else ("Replay %d/%d" % [replay_round, game.history.size()] if phase == "replay" else "Turno %d" % game.round_n), 16, UIKit.INK)
 	rnd.autowrap_mode = TextServer.AUTOWRAP_OFF
 	head.add_child(rnd)
 	if cur != null and phase != "over" and phase != "replay":
@@ -2437,6 +2591,8 @@ func _render_top() -> void:
 	if cur != null and not cur.wrecked and cur.cell >= 0 and phase not in ["over", "replay", "slots", "slotsAI", "energy", "energyAI", "reveal"]:
 		status_box.add_child(_stat_grid())
 	# 4. che cosa fare adesso e ultima mossa: spazio fisso, così sotto non si muove niente
+	if phase == "energy":
+		return    # il pannello dei gadget ha bisogno di tutto lo spazio
 	status_box.add_child(_fixed_box(_action_text(), Color("123447"), UIKit.INK, 13))
 	status_box.add_child(_fixed_box(game.log_text, UIKit.SOFT, UIKit.MUTED, 12))
 
@@ -2519,9 +2675,9 @@ func _stat_grid() -> Control:
 	if sl != "":
 		why.append("salita" if sl == "up" else "discesa")
 	if course.wind_speed_of(cur.cell) != 0:
-		why.append("vento")
+		why.append("tempesta")
 	top.add_child(_tile("Velocità" + (" (%s)" % ", ".join(why) if not why.is_empty() else ""), str(speed)))
-	top.add_child(_tile("Deriva" + (" (vento)" if course.wind_of(cur.cell) != 0 else ""), "0" if d == 0 else "%d %s" % [min(abs(d), speed), "dx" if d > 0 else "sx"]))
+	top.add_child(_tile("Deriva" + (" (tempesta)" if course.wind_of(cur.cell) != 0 else ""), "0" if d == 0 else "%d %s" % [min(abs(d), speed), "dx" if d > 0 else "sx"]))
 	var bonus := "—"
 	if d == 0 and m["L"] == m["R"] and cur.moves > 0 and speed > 0:
 		bonus = "+%d" % game.rank_of(cur)
@@ -2545,8 +2701,8 @@ func _stat_grid() -> Control:
 		for ft in sg["feats"]:
 			var wf := absi(course.wind_of(int(sg["cell"]))) + absi(course.wind_speed_of(int(sg["cell"])))
 			var it: Array = {"up": ["Salita: −%d velocità" % SledGame.UP_LOSS], "down": ["Discesa: +1 ogni %d" % SledGame.DOWN_PER],
-				"windR": ["Vento: deriva +%d a destra" % wf], "windL": ["Vento: deriva +%d a sinistra" % wf],
-				"windF": ["Vento a favore: +%d velocità" % wf], "windC": ["Vento contrario: −%d velocità" % wf], "ice": ["Vetro: si scivola"],
+				"windR": ["Tempesta: deriva +%d a destra" % wf], "windL": ["Tempesta: deriva +%d a sinistra" % wf],
+				"windF": ["Tempesta a favore: +%d velocità" % wf], "windC": ["Tempesta contraria: −%d velocità" % wf], "ice": ["Vetro: si scivola"],
 				"fresh": ["Sabbia: costa 2"], "hut": ["Officina: ripara metà"], "fork": ["Bivio: scegli il ramo"]}.get(ft, [ft])
 			rows.append([it[0], when, false])
 	for r in rows.slice(0, 2):
@@ -2627,17 +2783,15 @@ func _action_text() -> String:
 			if not online.is_empty():
 				if _posting_prog:
 					return "Invio la tua mossa…"
-				return "Si aspettano le mosse di tutti: quando ognuno ha programmato, le navette partono insieme."
+				return "Si aspettano le scelte di tutti…" if _in_energy else "Si aspettano le mosse di tutti: quando ognuno ha programmato, le navette partono insieme."
 		"replay":
 			return "Replay: le navette si muovono insieme."
 		"energy":
 			if cur != null:
-				return "[b]%s[/b], scegli in segreto i gadget del giro: hai [b]%d[/b] energia." % [cur.name, cur.energy]
+				return "[b]%s[/b], investi in segreto i punti del turno: te ne restano [b]%d[/b]." % [cur.name, cur.energy]
 		"energyAI":
 			if cur != null:
 				return "[b]%s[/b] (CPU) sceglie i gadget…" % cur.name
-		"reveal":
-			return "Gadget rivelati (mine e radar restano segreti): si parte!"
 	return ""
 
 func _render_bottom() -> void:
@@ -2673,9 +2827,6 @@ func _render_bottom() -> void:
 			return
 	if phase == "energy" and cur != null:
 		bottom_box.add_child(_energy_panel())
-		return
-	if phase == "reveal":
-		bottom_box.add_child(_reveal_panel())
 		return
 	if phase == "simwait" and not online.is_empty():
 		bottom_box.add_child(_sim_ready_row())
@@ -3070,8 +3221,6 @@ func _substitute(kind: String) -> void:
 			_do_act(_move_act(ch["pend"], ch["o"]), ch["o"])
 		"disc":
 			_do_act({"k": "disc", "v": game.ai_discard_values(cur)})
-		"en":
-			_do_act({"k": "en", "a": game.ai_alloc(cur)})
 
 ## Mentre tocca a te: se sei stato via e il computer ha già mosso al tuo posto, la mossa arriva qui.
 func _watch_mine() -> void:
@@ -3466,153 +3615,132 @@ func _online_begin(g: Dictionary, rejoin: bool) -> void:
 
 
 # ---------- Ion Tails: pannelli dell'energia ----------
-## Pallini dell'energia: pieni quelli che restano, vuoti quelli già assegnati.
-func _energy_pips(total: int, left: int, size := 18.0) -> HBoxContainer:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 4)
-	for i in SledGame.ENERGY_MAX:
-		var pc := Panel.new()
-		pc.custom_minimum_size = Vector2(size, size)
-		pc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		var on := i < left
-		var avail := i < total
-		var col: Color = UIKit.ENERGY if on else (Color(UIKit.ENERGY, 0.25) if avail else Color(UIKit.LINE, 0.35))
-		pc.add_theme_stylebox_override("panel", UIKit.box(col, int(size / 2), UIKit.ENERGY if avail else UIKit.LINE, 2, 0))
-		row.add_child(pc)
-	return row
-
 func _energy_panel() -> VBoxContainer:
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 7)
+	v.add_theme_constant_override("separation", 3)
 	var cost := SledGame.alloc_cost(en_draft)
 	var left: int = cur.energy - cost
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 10)
-	var hl := UIKit.heading("Energia", 16)
+	var hl := UIKit.heading("Punti gadget", 16)
+	hl.autowrap_mode = TextServer.AUTOWRAP_OFF
 	hl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(hl)
-	head.add_child(_energy_pips(cur.energy, left))
-	var ll := UIKit.label("restano %d" % left, 15, UIKit.MUTED)
+	var ll := UIKit.label("restano %d di %d" % [left, cur.energy], 15, UIKit.INK)
 	ll.autowrap_mode = TextServer.AUTOWRAP_OFF
+	ll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ll.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(ll)
+	_en_clock_lbl = UIKit.label("", 20, UIKit.HEAD)
+	_en_clock_lbl.add_theme_font_override("font", UIKit.font(UIKit.F_TITLE))
+	_en_clock_lbl.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_en_clock_lbl.custom_minimum_size = Vector2(64, 0)
+	_en_clock_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	if en_deadline > 0:
+		_en_clock_lbl.text = "%d s" % max(0, int(ceil((en_deadline - Time.get_ticks_msec()) / 1000.0)))
+	head.add_child(_en_clock_lbl)
 	v.add_child(head)
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 6)
-	grid.add_theme_constant_override("v_separation", 6)
-	for k in SledGame.GADGET_ORDER:
-		if k == "sn":
-			continue
-		var c := SledGame.gadget_cost(k)
-		var on: bool = en_draft.has(k)
-		var b := Button.new()
-		b.text = "%s  %d" % [SledGame.gadget_name(k), c]
-		b.toggle_mode = true
-		b.button_pressed = on
-		b.custom_minimum_size = Vector2(150, 36)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.clip_text = true
-		b.add_theme_font_size_override("font_size", 15)
-		b.add_theme_font_override("font", UIKit.font(UIKit.F_BOLD))
-		b.disabled = not on and c > left
-		if on:
-			UIKit.style_button(b, UIKit.ACCENT, UIKit.ON_ACCENT, UIKit.ACCENT, 2, 10)
-		else:
-			UIKit.style_button(b, UIKit.SOFT, UIKit.INK, UIKit.LINE, 2, 10)
-		b.pressed.connect(func():
-			if en_draft.has(k):
-				en_draft.erase(k)
-			else:
-				en_draft[k] = true
-			en_info = "[b]%s[/b] (%d): %s." % [SledGame.gadget_name(k), c, SledGame.GADGETS[k][3]]
-			_refresh())
-		grid.add_child(b)
-	v.add_child(grid)
-	# cecchini: uno o due, su navette in gara
-	var tg: Array = en_draft.get("sn", [])
-	var sh := HBoxContainer.new()
-	sh.add_theme_constant_override("separation", 8)
-	var sl := UIKit.label("Cecchini (2 ciascuno): %d/2" % tg.size(), 15, UIKit.INK)
-	sl.autowrap_mode = TextServer.AUTOWRAP_OFF
-	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sh.add_child(sl)
-	if not tg.is_empty():
-		var bx := Button.new()
-		bx.text = "Richiama"
-		bx.custom_minimum_size = Vector2(96, 34)
-		bx.add_theme_font_size_override("font_size", 14)
-		UIKit.style_button(bx, UIKit.SOFT, UIKit.INK, UIKit.LINE, 2, 10)
-		bx.pressed.connect(func():
-			en_draft.erase("sn")
-			_refresh())
-		sh.add_child(bx)
-	v.add_child(sh)
-	var fl := HFlowContainer.new()
-	fl.add_theme_constant_override("h_separation", 6)
-	fl.add_theme_constant_override("v_separation", 6)
-	for q in game.race_order():
-		if q == cur:
-			continue
-		var n := tg.count(q.id)
-		var b := Button.new()
-		b.text = "su %s%s" % [SledGame.NAMES[q.seat], " x%d" % n if n > 0 else ""]
-		b.custom_minimum_size = Vector2(104, 38)
-		b.add_theme_font_size_override("font_size", 15)
-		b.add_theme_font_override("font", UIKit.font(UIKit.F_BOLD))
-		b.disabled = left < 2 or tg.size() >= 2
-		UIKit.style_button(b, q.color.darkened(0.15) if n > 0 else UIKit.SOFT, Color.WHITE if n > 0 else UIKit.INK, q.color, 2, 10)
-		var qid: int = q.id
-		b.pressed.connect(func():
-			var arr: Array = en_draft.get("sn", []).duplicate()
-			arr.append(qid)
-			en_draft["sn"] = arr
-			en_info = "[b]Cecchino[/b] (2): %s." % SledGame.GADGETS["sn"][3]
-			_refresh())
-		fl.add_child(b)
-	v.add_child(fl)
-	var info := _fixed_box(en_info if en_info != "" else "Tocca un gadget per sceglierlo e leggere che cosa fa. L'energia avanzata resta (massimo %d)." % SledGame.ENERGY_MAX, UIKit.SOFT, UIKit.MUTED, 13)
+	for cat in SledGame.CATEGORIES:
+		var ch := UIKit.heading(cat, 13)
+		v.add_child(ch)
+		for k in SledGame.GADGET_ORDER:
+			if String(SledGame.GADGETS[k][1]) != cat:
+				continue
+			v.add_child(_gadget_row(k, left))
+			if k == "sn" and SledGame.level(en_draft, "sn") > 0:
+				v.add_child(_sniper_targets())
+	var info := _fixed_box(en_info if en_info != "" else "Tocca il nome di un gadget per leggere che cosa fa; i numeri sono i punti da investire in questo turno.", UIKit.SOFT, UIKit.MUTED, 13)
 	v.add_child(info)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	var b1 := UIKit.button("Azzera")
-	b1.custom_minimum_size = Vector2(0, 44)
+	b1.custom_minimum_size = Vector2(0, 42)
 	b1.add_theme_font_size_override("font_size", 17)
 	b1.disabled = en_draft.is_empty()
 	b1.pressed.connect(func():
 		en_draft = {}
-		en_info = ""
 		_refresh())
 	row.add_child(b1)
-	var b2 := UIKit.cta("Conferma in segreto" if not en_draft.is_empty() else "Nessun gadget")
-	b2.custom_minimum_size = Vector2(0, 44)
+	var b2 := UIKit.cta("Conferma" if cost > 0 else "Nessun gadget")
+	b2.custom_minimum_size = Vector2(0, 42)
 	b2.add_theme_font_size_override("font_size", 17)
 	b2.pressed.connect(_energy_confirm)
 	row.add_child(b2)
 	v.add_child(row)
 	return v
 
-## Riepilogo delle scelte rivelate, una riga per navetta.
-func _reveal_panel() -> VBoxContainer:
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 6)
-	v.add_child(UIKit.heading("Gadget del giro %d" % game.round_n, 16))
-	for r in game.reveal_lines():
-		var p = r["p"]
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 8)
-		var dot := ColorRect.new()
-		dot.color = p.color
-		dot.custom_minimum_size = Vector2(14, 14)
-		dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(dot)
-		var l := UIKit.label("%s: %s" % [SledGame.NAMES[p.seat], r["text"]], 15, UIKit.INK)
-		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		l.custom_minimum_size.x = 160
-		row.add_child(l)
-		v.add_child(row)
-	return v
+## Riga di un gadget: nome (tocca per la spiegazione) e livelli 0-3.
+func _gadget_row(k: String, left: int) -> HBoxContainer:
+	var r := HBoxContainer.new()
+	r.add_theme_constant_override("separation", 3)
+	var nb := Button.new()
+	nb.text = SledGame.gadget_name(k)
+	nb.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	nb.custom_minimum_size = Vector2(130, 28)
+	nb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nb.clip_text = true
+	nb.add_theme_font_size_override("font_size", 15)
+	nb.add_theme_font_override("font", UIKit.font(UIKit.F_BOLD))
+	UIKit.style_button(nb, Color(0, 0, 0, 0), UIKit.INK, Color(0, 0, 0, 0), 0, 8)
+	nb.pressed.connect(func():
+		en_info = "[b]%s[/b]: %s." % [SledGame.gadget_name(k), SledGame.GADGETS[k][2]]
+		_refresh())
+	r.add_child(nb)
+	var cur_lv := SledGame.level(en_draft, k)
+	for lv in range(0, SledGame.MAX_LEVEL + 1):
+		var b := Button.new()
+		b.text = str(lv)
+		b.custom_minimum_size = Vector2(38, 28)
+		b.add_theme_font_size_override("font_size", 15)
+		b.add_theme_font_override("font", UIKit.font(UIKit.F_BOLD))
+		var on := lv == cur_lv
+		b.disabled = not on and lv - cur_lv > left
+		if on and lv > 0:
+			UIKit.style_button(b, UIKit.ACCENT, UIKit.ON_ACCENT, UIKit.ACCENT, 2, 8)
+		elif on:
+			UIKit.style_button(b, UIKit.LINE, UIKit.INK, UIKit.LINE, 2, 8)
+		else:
+			UIKit.style_button(b, UIKit.SOFT, UIKit.INK, UIKit.LINE, 2, 8)
+		b.pressed.connect(func():
+			if lv == 0:
+				en_draft.erase(k)
+				if k == "sn":
+					en_draft.erase("snt")
+			else:
+				en_draft[k] = lv
+				if k == "sn" and not en_draft.has("snt"):
+					var ord := game.race_order()
+					for q in ord:
+						if q != cur:
+							en_draft["snt"] = q.id
+							break
+			en_info = "[b]%s[/b]: %s." % [SledGame.gadget_name(k), SledGame.GADGETS[k][2]]
+			_refresh())
+		r.add_child(b)
+	return r
 
+## Bersaglio del cecchino: un pulsante per navetta in gara.
+func _sniper_targets() -> HFlowContainer:
+	var fl := HFlowContainer.new()
+	fl.add_theme_constant_override("h_separation", 6)
+	fl.add_theme_constant_override("v_separation", 4)
+	var t := int(en_draft.get("snt", -1))
+	for q in game.race_order():
+		if q == cur:
+			continue
+		var on: bool = q.id == t
+		var b := Button.new()
+		b.text = "su %s" % SledGame.NAMES[q.seat]
+		b.custom_minimum_size = Vector2(80, 26)
+		b.add_theme_font_size_override("font_size", 13)
+		b.add_theme_font_override("font", UIKit.font(UIKit.F_BOLD))
+		UIKit.style_button(b, q.color.darkened(0.15) if on else UIKit.SOFT, Color.WHITE if on else UIKit.INK, q.color, 2, 8)
+		var qid: int = q.id
+		b.pressed.connect(func():
+			en_draft["snt"] = qid
+			_refresh())
+		fl.add_child(b)
+	return fl
 
 # ---------- Ion Tails: gadget visibili ----------
 var _in_energy := false
@@ -3638,7 +3766,7 @@ func _viewer():
 func _sync_gadget_view() -> void:
 	if game == null or board == null:
 		return
-	board.show_al = game.energy_on and not _in_energy
+	board.show_al = false     # i gadget sono segreti: si vedono solo quando agiscono
 	var v = _viewer()
 	var cells := []
 	if v != null:
@@ -3668,5 +3796,10 @@ func _play_gadget_fx(gfx: Array) -> void:
 				await _pause(0.35)
 			"boost":
 				board.boost_fx(int(g["pid"]))
+			"missile":
+				await board.missile_fx(g.get("cells", []), String(g.get("res", "")), int(g.get("pid", -1)))
+			"blast":
+				board.blast_fx(int(g["pid"]), int(g["to"]))
+				await _pause(0.4)
 	_sync_gadget_view()
 	board.redraw()

@@ -237,7 +237,7 @@ func _clear() -> void:
 	pieces = []
 	_refresh()
 
-const MOD_NAMES := {"up": "salita", "down": "discesa", "L": "vento sx", "R": "vento dx", "F": "vento a favore", "C": "vento contrario", "ice": "vetro", "fresh": "sabbia", "hut": "officina"}
+const MOD_NAMES := {"up": "salita", "down": "discesa", "L": "tempesta sx", "R": "tempesta dx", "F": "tempesta a favore", "C": "tempesta contraria", "ice": "vetro", "fresh": "sabbia", "hut": "officina"}
 
 func _label_of(item) -> String:
 	var fid := Course.item_id(item)
@@ -279,7 +279,7 @@ func _refresh_mods() -> void:
 	var m := Course.item_mods(pieces[i])
 	mods_box.add_child(UIKit.heading("Caratteristiche del pezzo %d" % (i + 1), 14))
 	for row in [["Pendenza", "slope", [["piano", ""], ["salita", "up"], ["discesa", "down"]]],
-			["Vento", "wind", [["no", ""], ["sx", "L"], ["dx", "R"], ["a favore", "F"], ["contro", "C"]]]]:
+			["Tempesta", "wind", [["no", ""], ["sx", "L"], ["dx", "R"], ["a favore", "F"], ["contro", "C"]]]]:
 		var h := HBoxContainer.new()
 		h.add_theme_constant_override("separation", 4)
 		var l := UIKit.label(row[0], 14, UIKit.MUTED)
@@ -408,7 +408,7 @@ func _refresh() -> void:
 	if not _bad.is_empty():
 		msgs.append("[color=#c93636]Alcuni pezzi si sovrappongono.[/color]")
 	if pieces.is_empty():
-		msgs.append("Scegli la partenza e aggiungi i pezzi. Seleziona un rettilineo per sommargli salita, vento, vetro…")
+		msgs.append("Scegli la partenza e aggiungi i pezzi. Seleziona un rettilineo per sommargli salita, tempesta di sabbia, vetro…")
 	elif not has_finish:
 		msgs.append("Manca l'[b]arrivo[/b]: aggiungilo, poi almeno un rettilineo dopo.")
 	elif Course.item_id(pieces[pieces.size() - 1]).begins_with("finish"):

@@ -42,15 +42,11 @@ func _run() -> void:
 	await until(["energy"])
 	await wait(1.0)
 	await shot("03_energy")
-	main.en_draft = {"mi": true, "sm": true, "bo": true}
-	main.en_info = "[b]Scudo[/b] (1): prova."
+	main.en_draft = {"mi": 1, "bo": 1, "sn": 2, "snt": main.game.players[1].id}
 	main._refresh()
 	await wait(0.3)
 	await shot("04_energy_sel")
 	main._energy_confirm()
-	await until(["reveal"])
-	await wait(0.5)
-	await shot("05_reveal")
 	await until(["cards"])
 	await wait(1.2)
 	await shot("06_cards")

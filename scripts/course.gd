@@ -762,7 +762,7 @@ func composition() -> String:
 	for e in [["corner", "curva", "curve"], ["uturn", "inversione", "inversioni"], ["straight", "rettilineo", "rettilinei"],
 			["saplings", "con massi", "con massi"], ["snowdrift", "con cumulo", "con cumuli"], ["chasm", "crepaccio", "crepacci"],
 			["leap", "Salto della gola", "Salto della gola"], ["up", "salita", "salite"], ["down", "discesa", "discese"],
-			["wind", "col vento", "col vento"], ["ice", "ghiacciato", "ghiacciati"], ["fresh", "con sabbia", "con sabbia"],
+			["wind", "con tempesta di sabbia", "con tempesta di sabbia"], ["ice", "di vetro", "di vetro"], ["fresh", "con sabbia", "con sabbia"],
 			["hut", "officina", "baite"], ["fork", "bivio", "bivi"]]:
 		var k: int = n.get(e[0], 0)
 		if k > 0:

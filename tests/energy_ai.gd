@@ -31,6 +31,7 @@ func _init() -> void:
 				game.apply_alloc(p, a)
 				for k in a:
 					tot[k] = tot.get(k, 0) + 1
+			game.apply_hooks()
 			for p in game.race_order():
 				if not game.racing(p): continue
 				if p.hand.is_empty():

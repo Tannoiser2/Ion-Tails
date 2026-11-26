@@ -10,38 +10,41 @@ Gioco online: https://tannoiser2.github.io/Ion-Tails/ (stanze Firebase sotto `io
 Progetto Godot 4.7, renderer Compatibility. Le tessere sono le scansioni di Snow Tails ricolorate
 (`tools/recolor_tiles.py`): uso personale, da non distribuire.
 
-## Regole aggiuntive: energia e gadget
-All'inizio di ogni giro ogni navetta in gara riceve **3 punti energia** (se ne accumulano al massimo **6**).
-Prima di muovere ognuno li assegna **in segreto** ai gadget (sullo stesso dispositivo con più persone
-compare una copertina fra un giocatore e l'altro); poi le scelte si rivelano tutte insieme.
-**Mine e radar restano segreti**: si vede solo quanti gadget segreti ha preso ciascuno.
+## Regole aggiuntive: punti gadget
+A inizio gara ogni navetta riceve una **scorta di punti** in base alla lunghezza della pista: un punto
+ogni 5 passi dalla partenza al traguardo (The Nutcracker 10, Bruce's Nightmare 14). Non se ne ricevono altri.
 
-| Gadget | Costo | Effetto |
+All'inizio di ogni **turno** (tutte le navette muovono una volta) ognuno decide **in segreto** quanti punti
+investire, da 0 a 3 per gadget, entro un **conto alla rovescia** scelto nel menu (20, 30, 60 secondi o
+senza limite; allo scadere vale la scelta fatta fin lì). Online scelgono tutti nello stesso momento;
+sullo stesso dispositivo uno alla volta dietro la copertina. Poi si muove come in Snow Tails; i gadget
+si scoprono solo quando agiscono.
+
+| Categoria | Gadget | Effetto (per punto investito) |
 |---|---|---|
-| Cecchino | 2 | dal canyon spara alla navetta scelta quando finisce la mossa: 1 danno (massimo 2 per giro) |
-| Scudo | 1 | per tutto il giro i colpi dei cecchini non feriscono |
-| Esca olografica | 1 | il primo colpo destinato a te va sulla navetta più vicina |
-| Fumo | 1 | le caselle attraversate (non quella d'arrivo) restano nel fumo fino a fine giro: chi ci si ferma è invisibile ai cecchini |
-| Mina | 1 | mina nascosta sulla casella da cui parti: chi ci passa prende 1 danno (chi l'ha sganciata no) |
-| Radar | 1 | per il giro vedi tutte le mine e la rotta le evita quando può |
-| Postbruciatore | 1 | +2 alla velocità della mossa (conta per i limiti delle curve) |
-| Arpione | 1 | con una navetta fino a 4 passi davanti: +1 a te, −1 a lei alla prossima mossa |
-| Impulso EMP | 2 | a fine mossa le navette vicine scartano una carta a caso e perdono scudo ed esca |
-| Riparazione | 2 | togli subito un danno |
+| Attacchi | Cecchino | spara al bersaglio scelto quando finisce la mossa. Mira = 30% + 20% per punto, −4% per punto di velocità del bersaglio oltre 4, −8% per corsia di distanza dalla parete, −30% per punto di scudo. 1 danno |
+| Attacchi | Mine | una mina per punto sulle caselle che ti lasci dietro: chi ci passa prende 1 danno |
+| Attacchi | Missile | a fine mossa, dritto davanti nella tua corsia; gittata 3 + 2 per punto; 1 danno alla prima navetta |
+| Difese | Scudo | −30% alla mira dei cecchini per punto; ferma i missili da dietro solo il 15% delle volte per punto |
+| Difese | Radar | rivela le mine del settore (tessera) in cui sei; con 2 punti anche del seguente, con 3 dei due seguenti |
+| Difese | CME | contro i missili: 1 punto = cambia corsia una volta su due, 2 = cambia sempre corsia, 3 = esplode |
+| Movimento | Postbruciatore | +1 velocità per punto in questa mossa (conta per i limiti delle curve) |
+| Movimento | Arpione | la navetta più vicina davanti (fino a 6 passi) ha −1 velocità per punto in questo turno |
+| Movimento | Blast ionico | a fine mossa spinge di lato la navetta più vicina davanti (fino a 3 passi) di una corsia per punto, verso il bordo; se ci sbatte, 1 danno |
 
-**Scia ionica** (gratis): con una navetta proprio nella casella davanti quando parti, +1 alla velocità.
-
-Il resto è Snow Tails: carte 1-5, curve con limite, bordi, tamponamenti, massi (al posto degli
-alberelli), dune e crepacci, salto della gola, 5 danni = navetta distrutta. Nei segmenti fanmade la
-neve fresca diventa **sabbia**, il ghiaccio **vetro** e la baita un'**officina**.
+Il resto è Snow Tails: carte 1-5, motori a 3 all'inizio, curve con limite, bordi, tamponamenti,
+massi, dune e crepacci, salto della gola, 5 danni = navetta distrutta. Nei segmenti fanmade il vento
+diventa **tempesta di sabbia**, la neve fresca **sabbia**, il ghiaccio **vetro** e la baita un'**officina**.
 
 ### Dove sta nel codice
-- `scripts/game.gd`, sezione «Ion Tails: energia e gadget»: costi (`GADGETS`), scelta e rivelazione
-  (`apply_alloc`, `reveal_lines`), effetti a fine mossa (`_gadgets_after_move`), scelte della CPU (`ai_alloc`).
-- `scripts/main.gd`: fase dell'energia (`_energy_next`, `_energy_panel`, `_energy_reveal`) ed effetti
-  visivi (`_play_gadget_fx`). Online ogni scelta è una mossa del registro (`{"k": "en", "a": {...}}`).
+- `scripts/game.gd`, sezione «Ion Tails: punti gadget»: scorta (`budget_for`), scelta (`apply_alloc`),
+  arpione (`apply_hooks`), mira dei cecchini (`sniper_chance`), missile (`_missile`), effetti a fine
+  mossa (`_gadgets_after_move`), scelte della CPU (`ai_alloc`).
+- `scripts/main.gd`: fase dei gadget (`_energy_next`, `_energy_panel`, `_energy_round_online` per le scelte
+  online in parallelo) ed effetti visivi (`_play_gadget_fx`). Online ogni scelta è una mossa del registro
+  (`{"k": "en", "a": {"sn": 2, "snt": 1, ...}}`).
 - `scripts/team_model.gd`: la navetta (costruita in codice). `scripts/segment_fx.gd`: canyon a strati,
-  nidi dei cecchini, pinnacoli. `scripts/board_view_3d.gd`: laser, mine, esplosioni, fumo, EMP, scudi.
+  nidi dei cecchini, pinnacoli. `scripts/board_view_3d.gd`: laser, missili, mine, esplosioni, blast ionico, scudi.
 
 ## Grafica
 - Carte spinta 1-5 per colore, carta danno, gettoni freno, plance: `tools/build_ion_art.py`.
@@ -51,9 +54,9 @@ neve fresca diventa **sabbia**, il ghiaccio **vetro** e la baita un'**officina**
   che ogni carattere delle scritte esista nei font.
 
 ## Prove
-- `tests/energy_ai.gd`: gare senza grafica con sole CPU, energia e gadget.
+- `tests/energy_ai.gd`: gare senza grafica con sole CPU e gadget.
 - `tests/sim_cpu.gd`: gara con la scena vera (anche simultanea con `ST_SIM=1`).
-- `tests/ion_shots.gd`: screenshot di menu, fase dell'energia, rivelazione, mossa e colpi dei cecchini.
+- `tests/ion_shots.gd`: screenshot di menu, scelta dei gadget, mossa e colpi dei cecchini.
 - `tests/online_play.gd` con `tests/firebase_mock.py`: due istanze giocano una gara online
   (usare `ST_SESSION` diverso per le due istanze) e le impronte finali devono coincidere.
 

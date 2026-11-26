@@ -180,7 +180,7 @@ static func _wind(parent: Node3D, c: Course, pi: int) -> void:
 	sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	sm.vertex_color_use_as_albedo = true
-	sm.albedo_color = Color(1, 1, 1, 0.75)
+	sm.albedo_color = Color(0.96, 0.74, 0.5, 0.75)   # sabbia sollevata dalla tempesta
 	streak.material_override = sm
 	streak.amount = 40 + 30 * force
 	streak.lifetime = 1.1
@@ -207,7 +207,9 @@ static func _wind(parent: Node3D, c: Course, pi: int) -> void:
 	var qm := QuadMesh.new()
 	qm.size = Vector2(0.22, 0.22)
 	dust.mesh = qm
-	dust.material_override = _flake_mat(0.6)
+	var dm := _flake_mat(0.6).duplicate() as StandardMaterial3D
+	dm.albedo_color = Color(0.9, 0.62, 0.4, 0.6)
+	dust.material_override = dm
 	dust.amount = 60 + 40 * force
 	dust.lifetime = 2.2
 	dust.preprocess = 3.0

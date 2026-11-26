@@ -951,7 +951,7 @@ func laser_fx(pid: int, res: String) -> void:
 			var d := to - nn.global_position
 			nn.rotation.y = atan2(-d.x, -d.z)
 	var end := to
-	if res == "smoke" or res == "decoy":
+	if res == "smoke" or res == "decoy" or res == "miss":
 		end = to + (from - to).normalized() * 0.25 + Vector3(randf_range(-0.3, 0.3), 0.1, randf_range(-0.3, 0.3))
 	var beam := MeshInstance3D.new()
 	beam.mesh = TeamModel.cyl(0.012, 0.012, 1.0, 6)
@@ -1082,3 +1082,81 @@ func hook_fx(pid: int, to_pid: int) -> void:
 ## Postbruciatore: fiammata dai motori.
 func boost_fx(pid: int) -> void:
 	spark(ship_pos(pid), Color("7fe8ff"), 1.0)
+
+## Missile: un piccolo razzo luminoso che segue le caselle; alla fine esplode o si spegne.
+func missile_fx(cells: Array, res: String, pid: int) -> void:
+	if cells.size() < 2:
+		return
+	var m := Node3D.new()
+	var body := MeshInstance3D.new()
+	body.mesh = TeamModel.caps(0.025, 0.12)
+	body.material_override = TeamModel.metal(Color("c8ced6"), 0.4)
+	body.rotation.x = PI / 2
+	m.add_child(body)
+	var fl := MeshInstance3D.new()
+	fl.mesh = TeamModel.cyl(0.0, 0.022, 0.1, 8)
+	fl.material_override = TeamModel.glow(Color("ffb066"), 1.6, 0.8)
+	fl.rotation.x = PI / 2
+	fl.position.z = 0.1
+	m.add_child(fl)
+	_fx.add_child(m)
+	var pts := []
+	for c in cells:
+		pts.append(to3(course.cells[int(c)]["pos"], 0.22))
+	var t := 0.0
+	var dur: float = 0.09 * float(pts.size() - 1) + 0.15
+	while t < dur:
+		await get_tree().process_frame
+		t += get_process_delta_time()
+		var x: float = clamp(t / dur, 0.0, 1.0) * float(pts.size() - 1)
+		var k: int = min(int(floor(x)), pts.size() - 2)
+		var a: Vector3 = pts[k]
+		var b: Vector3 = pts[k + 1]
+		m.position = a.lerp(b, x - k)
+		var d := b - a
+		if d.length() > 0.001:
+			m.rotation.y = atan2(-d.x, -d.z)
+		if randf() < 0.5:
+			puff(m.position, 0.25)
+	var end: Vector3 = pts[pts.size() - 1]
+	m.queue_free()
+	match res:
+		"hit":
+			_blast_at(end)
+			if _teams.has(pid):
+				(_teams[pid]["node"] as TeamModel).shake(1.0)
+		"shield":
+			flash_shield(pid)
+		"boom", "wall":
+			_blast_at(end)
+		_:
+			puff(end, 0.6)
+
+func _blast_at(at: Vector3) -> void:
+	var fl := MeshInstance3D.new()
+	fl.mesh = TeamModel.sph(0.2)
+	var fm := TeamModel.glow(Color("ff9a3c"), 2.0, 0.85)
+	fl.material_override = fm
+	fl.position = at
+	_fx.add_child(fl)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(fl, "scale", Vector3.ONE * 2.0, 0.3)
+	tw.tween_property(fm, "albedo_color:a", 0.0, 0.3)
+	tw.chain().tween_callback(fl.queue_free)
+	spark(at, Color("ffcc66"), 1.3)
+
+## Blast ionico: onda azzurra dalla navetta verso quella spinta di lato.
+func blast_fx(pid: int, to_pid: int) -> void:
+	hook_fx(pid, to_pid)
+	emp_fx_at(ship_pos(to_pid))
+	if _teams.has(to_pid):
+		(_teams[to_pid]["node"] as TeamModel).shake(0.8)
+
+func emp_fx_at(at: Vector3) -> void:
+	var r := _ring(0.25, Color("8af6ff"), 0.03)
+	r.position = at
+	_fx.add_child(r)
+	var tw := create_tween()
+	tw.tween_property(r, "scale", Vector3.ONE * 3.0, 0.45)
+	tw.tween_callback(r.queue_free)

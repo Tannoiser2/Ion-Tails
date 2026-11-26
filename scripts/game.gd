@@ -31,10 +31,10 @@ class Player:
 	var finish_round := 0      # giro in cui ha tagliato il traguardo (0 = non ancora)
 	var smart := true          # CPU che guarda avanti le caratteristiche fanmade (false = la vecchia, per i confronti)
 	# --- Ion Tails: energia e gadget ---
-	var energy := 0            # punti energia accumulati (massimo ENERGY_MAX)
-	var al := {}               # gadget scelti per il giro in corso (chiavi di GADGETS; "sn" = elenco di bersagli)
-	var drag := 0              # rallentamento da arpione da subire alla prossima mossa
-	var spent := 0             # energia spesa in tutta la gara (statistica)
+	var energy := 0            # punti gadget rimasti
+	var al := {}               # punti investiti nel turno: chiave di GADGETS -> livello; "snt" = bersaglio del cecchino
+	var drag := 0              # rallentamento da arpione in questo turno
+	var spent := 0             # punti spesi in tutta la gara (statistica)
 
 var course: Course
 var players: Array = []
@@ -61,29 +61,30 @@ var rng := RandomNumberGenerator.new()
 ## Le rotte si calcolano senza tener conto delle altre navette; i conflitti si risolvono dopo.
 var simultaneous := false
 
-# ---------- Ion Tails: energia e gadget ----------
-## Regole aggiuntive: ogni giro ogni navetta riceve ENERGY_GAIN punti energia (al massimo
-## ENERGY_MAX accumulati) e li assegna in segreto ai gadget; poi le scelte si rivelano insieme
-## (mine e radar restano segreti).
+# ---------- Ion Tails: punti gadget ----------
+## Regole aggiuntive: a inizio gara ogni navetta riceve una scorta di punti in base alla
+## lunghezza della pista (BUDGET_DIV passi per punto). A ogni turno ognuno decide in segreto
+## quanti punti investire (da 0 a MAX_LEVEL) in attacchi, difese e movimento.
 var energy_on := true
-const ENERGY_GAIN := 3
-const ENERGY_MAX := 6
-## chiave -> [nome, costo, quante volte per giro, descrizione breve]
+const BUDGET_DIV := 5.0
+const MAX_LEVEL := 3
+## chiave -> [nome, categoria, descrizione per livello]
 const GADGETS := {
-	"sn": ["Cecchino", 2, 2, "un cecchino dal canyon spara a una navetta a tua scelta quando finisce la mossa: 1 danno"],
-	"sh": ["Scudo", 1, 1, "per tutto il giro i colpi dei cecchini non ti feriscono"],
-	"de": ["Esca olografica", 1, 1, "il primo colpo che ti è destinato va sulla navetta più vicina a te"],
-	"sm": ["Fumo", 1, 1, "lasci una nube sulle caselle che attraversi: chi ci si ferma è invisibile ai cecchini"],
-	"mi": ["Mina", 1, 1, "sganci una mina nascosta sulla casella da cui parti: chi ci passa prende 1 danno"],
-	"ra": ["Radar", 1, 1, "in questo giro vedi tutte le mine in pista e la rotta le evita quando può"],
-	"bo": ["Postbruciatore", 1, 1, "+2 alla velocità di questa mossa (conta anche per i limiti delle curve)"],
-	"ho": ["Arpione", 1, 1, "+1 alla velocità; la navetta più vicina davanti a te avrà −1 alla prossima mossa"],
-	"em": ["Impulso EMP", 2, 1, "a fine mossa le navette vicine scartano una carta e perdono scudo ed esca"],
-	"re": ["Riparazione", 2, 1, "togli subito un danno"],
+	"sn": ["Cecchino", "Attacchi", "spara alla navetta scelta quando finisce la mossa: più punti, più precisione; sbaglia più spesso se il bersaglio va veloce o sta lontano dalle pareti"],
+	"mi": ["Mine", "Attacchi", "una mina per punto, sulle caselle che ti lasci dietro: chi ci passa prende 1 danno"],
+	"ms": ["Missile", "Attacchi", "a fine mossa spara dritto davanti nella tua corsia; gittata 3 caselle più 2 per punto"],
+	"sh": ["Scudo", "Difese", "ogni punto toglie il 30% alla mira dei cecchini, ma solo il 15% ai missili che arrivano da dietro"],
+	"ra": ["Radar", "Difese", "rivela le mine del settore in cui sei (1 punto), anche del seguente (2), dei due seguenti (3)"],
+	"cm": ["CME", "Difese", "contromisure: con 1 punto il missile cambia corsia una volta su due, con 2 cambia sempre corsia, con 3 esplode"],
+	"bo": ["Postbruciatore", "Movimento", "+1 velocità per punto in questa mossa (conta anche per i limiti delle curve)"],
+	"ho": ["Arpione", "Movimento", "la navetta più vicina davanti a te (fino a 6 passi) ha −1 velocità per punto in questo turno"],
+	"bl": ["Blast ionico", "Movimento", "a fine mossa spinge di lato la navetta più vicina davanti (fino a 3 passi) di una corsia per punto, verso il bordo"],
 }
-const GADGET_ORDER := ["sn", "sh", "de", "sm", "mi", "ra", "bo", "ho", "em", "re"]
+const GADGET_ORDER := ["sn", "mi", "ms", "sh", "ra", "cm", "bo", "ho", "bl"]
+const CATEGORIES := ["Attacchi", "Difese", "Movimento"]
 var mines := {}            # casella -> id della navetta che l'ha sganciata
-var smoke := {}            # caselle con il fumo (fino alla fine del giro)
+var smoke := {}            # (non più usato: resta per compatibilità con l'interfaccia)
+var budget := 0            # punti gadget di ogni navetta a inizio gara
 
 ## Mescola un elenco con il generatore della partita (al posto di Array.shuffle, che usa quello globale).
 func shuffle(a: Array) -> void:
@@ -129,6 +130,9 @@ func setup(c: Course, ai_flags: Array, seed_value := 0) -> void:
 	oi = 0
 	mines = {}
 	smoke = {}
+	budget = budget_for(c)
+	for p in players:
+		p.energy = budget
 
 func make_deck() -> Array:
 	var d := []
@@ -325,11 +329,11 @@ func compute_outs(p: Player, m: Dictionary, all_paths := false) -> Array:
 		if course.wind_speed_of(p.cell) != 0:
 			r["wind_speed"] = course.wind_speed_of(p.cell)
 	# mine viste col radar: la rotta le evita quando può (e la CPU ne tiene conto)
-	if p.al.has("ra"):
+	if int(p.al.get("ra", 0)) > 0:
 		for r in res:
 			var km := 0
 			for t in r["path"]:
-				if mines.has(t) and int(mines[t]) != p.id:
+				if sees_mine(p, int(t)) and int(mines[t]) != p.id:
 					km += 1
 			r["km"] = km
 	if all_paths:
@@ -619,9 +623,9 @@ func after_move(p: Player, o: Dictionary) -> bool:
 	if o.get("ice", false):
 		msgs.append("scivola sul vetro")
 	if int(o.get("wind", 0)) != 0:
-		msgs.append("il vento la spinge %s (%d)" % ["a destra" if int(o["wind"]) > 0 else "a sinistra", abs(int(o["wind"]))])
+		msgs.append("la tempesta di sabbia la spinge %s (%d)" % ["a destra" if int(o["wind"]) > 0 else "a sinistra", abs(int(o["wind"]))])
 	if int(o.get("wind_speed", 0)) != 0:
-		msgs.append("vento %s (%+d)" % ["a favore" if int(o["wind_speed"]) > 0 else "contrario", int(o["wind_speed"])])
+		msgs.append("tempesta %s (%+d)" % ["a favore" if int(o["wind_speed"]) > 0 else "contraria", int(o["wind_speed"])])
 	if in_crev:
 		msgs.append("si ferma nella spaccatura e non pesca")
 	var swept := []
@@ -736,7 +740,7 @@ func _game_over() -> void:
 	results = []
 	for p in fin:
 		var past := int(floor((float(cell(p.cell)["s"]) - course.finish_s) / course.cell_len)) + 1
-		results.append({"p": p, "st": "arrivata al giro %d, %d oltre il traguardo" % [p.finish_round, max(past, 0)]})
+		results.append({"p": p, "st": "arrivata al turno %d, %d oltre il traguardo" % [p.finish_round, max(past, 0)]})
 	for p in notf:
 		results.append({"p": p, "st": "ancora in gara"})
 	for p in wr:
@@ -951,42 +955,33 @@ func ai_discard_values(p: Player) -> Array:
 		out.append(bestv)
 	return out
 
-# ---------- Ion Tails: energia e gadget ----------
-## Inizio giro: energia per tutte le navette in corsa, via le scelte del giro prima e il fumo.
+# ---------- Ion Tails: punti gadget ----------
+## Scorta di punti di ogni navetta: un punto ogni BUDGET_DIV passi dalla partenza al traguardo.
+static func budget_for(c: Course) -> int:
+	if c.start_cells.is_empty():
+		return 10
+	var togo := int(c.cells[c.start_cells[min(2, c.start_cells.size() - 1)]].get("togo", 40))
+	return max(6, int(round(float(togo) / BUDGET_DIV)))
+
+## Inizio turno: via le scelte del turno prima.
 func energy_round_start() -> void:
 	smoke = {}
 	for p in players:
 		p.al = {}
-		if racing(p):
-			p.energy = min(ENERGY_MAX, p.energy + ENERGY_GAIN)
+		p.drag = 0
 
 static func gadget_name(k: String) -> String:
 	return String(GADGETS[k][0])
 
-static func gadget_cost(k: String) -> int:
-	return int(GADGETS[k][1])
+static func level(a: Dictionary, k: String) -> int:
+	return clampi(int(a.get(k, 0)), 0, MAX_LEVEL)
 
-## Energia richiesta da una scelta di gadget.
+## Punti richiesti da una scelta.
 static func alloc_cost(a: Dictionary) -> int:
 	var c := 0
-	for k in a:
-		if not GADGETS.has(k):
-			continue
-		if k == "sn":
-			c += gadget_cost(k) * (a[k] as Array).size()
-		elif a[k]:
-			c += gadget_cost(k)
+	for k in GADGET_ORDER:
+		c += level(a, k)
 	return c
-
-## La scelta è valida? (energia sufficiente, bersagli dei cecchini in gara e non la navetta stessa)
-func alloc_ok(p: Player, a: Dictionary) -> bool:
-	if alloc_cost(a) > p.energy:
-		return false
-	for t in a.get("sn", []):
-		var q := player_by_id(int(t))
-		if q == null or q == p or not racing(q):
-			return false
-	return (a.get("sn", []) as Array).size() <= int(GADGETS["sn"][2])
 
 func player_by_id(id: int) -> Player:
 	for q in players:
@@ -994,54 +989,48 @@ func player_by_id(id: int) -> Player:
 			return q
 	return null
 
-## Applica la scelta (già controllata): energia spesa, riparazione subito.
+## La scelta è valida? (punti sufficienti, bersaglio del cecchino in gara e non la navetta stessa)
+func alloc_ok(p: Player, a: Dictionary) -> bool:
+	if alloc_cost(a) > p.energy:
+		return false
+	if level(a, "sn") > 0:
+		var q := player_by_id(int(a.get("snt", -1)))
+		if q == null or q == p or not racing(q):
+			return false
+	return true
+
+## Applica la scelta (se non valida, nessun gadget): punti spesi, settori del radar.
 func apply_alloc(p: Player, a: Dictionary) -> void:
 	var clean := {}
-	for k in a:
-		if not GADGETS.has(k):
-			continue
-		if k == "sn":
-			var arr := []
-			for t in a[k]:
-				arr.append(int(t))
-			if not arr.is_empty():
-				clean[k] = arr
-		elif a[k]:
-			clean[k] = true
+	for k in GADGET_ORDER:
+		var lv := level(a, k)
+		if lv > 0:
+			clean[k] = lv
+	if clean.has("sn"):
+		clean["snt"] = int(a.get("snt", -1))
 	if not alloc_ok(p, clean):
 		clean = {}
 	var c := alloc_cost(clean)
 	p.energy -= c
 	p.spent += c
+	if clean.has("ra") and p.cell >= 0:
+		var pc := int(cell(p.cell)["piece"])
+		clean["ra0"] = pc
+		clean["ra1"] = pc + int(clean["ra"]) - 1
 	p.al = clean
-	if clean.has("re"):
-		if p.dents > 0:
-			p.dents -= 1
-		elif p.half:
-			p.half = false
 
-## Testo della rivelazione: tutto in chiaro tranne mine e radar (segreti).
-func reveal_lines() -> Array:
+## Dopo le scelte di tutti: l'arpione rallenta subito il bersaglio per questo turno.
+func apply_hooks() -> Array:
 	var out := []
 	for p in players:
-		if not racing(p):
+		var lv := level(p.al, "ho")
+		if lv <= 0 or not racing(p):
 			continue
-		var parts := []
-		var secret := 0
-		for k in GADGET_ORDER:
-			if not p.al.has(k):
-				continue
-			if k == "mi" or k == "ra":
-				secret += 1
-			elif k == "sn":
-				for t in p.al["sn"]:
-					var q := player_by_id(int(t))
-					parts.append("cecchino su %s" % (q.name if q else "?"))
-			else:
-				parts.append(gadget_name(k).to_lower())
-		if secret > 0:
-			parts.append("%s segret%s" % [str(secret), "o" if secret == 1 else "i"])
-		out.append({"p": p, "text": ", ".join(parts) if not parts.is_empty() else "risparmia energia"})
+		var t := hook_target(p)
+		if t != null:
+			t.drag += lv
+			p.al["hot"] = t.id
+			out.append({"by": p, "to": t, "lv": lv})
 	return out
 
 ## Altre navette in pista (non distrutte).
@@ -1052,79 +1041,133 @@ func _on_track(p: Player) -> Array:
 			out.append(q)
 	return out
 
-func _cell_dist(a: int, b: int) -> float:
-	return (cell(a)["pos"] as Vector2).distance_to(cell(b)["pos"])
-
-## Scia ionica: un'altra navetta proprio nella casella davanti.
-func slipstream(p: Player, from_cell := -2) -> bool:
-	var c0: int = p.cell if from_cell == -2 else from_cell
-	if c0 < 0:
-		return false
-	var fw: Array = cell(c0)["fwd"]
-	for q in _on_track(p):
-		if q.finish_round == 0 and fw.has(q.cell):
-			return true
-	return false
-
-## Arpione: la navetta più vicina davanti, entro HOOK_RANGE passi dal traguardo in meno.
-const HOOK_RANGE := 4
-func hook_target(p: Player, from_cell := -2) -> Player:
-	var c0: int = p.cell if from_cell == -2 else from_cell
-	if c0 < 0:
+## La navetta più vicina davanti (in passi dal traguardo), entro range passi.
+func _ahead(p: Player, from_cell: int, rng_max: int) -> Player:
+	if from_cell < 0:
 		return null
-	var my_togo := int(cell(c0)["togo"])
+	var my_togo := int(cell(from_cell)["togo"])
 	var best: Player = null
 	var bd := 999
 	for q in _on_track(p):
 		if q.finish_round != 0:
 			continue
 		var d: int = my_togo - int(cell(q.cell)["togo"])
-		if d >= 1 and d <= HOOK_RANGE and d < bd:
+		if d >= 0 and d <= rng_max and d < bd and q.cell != from_cell:
 			bd = d
 			best = q
 	return best
 
-## Velocità in più (o in meno) per la mossa di p: postbruciatore, arpione, scia, rallentamento.
+const HOOK_RANGE := 6
+func hook_target(p: Player) -> Player:
+	return _ahead(p, p.cell, HOOK_RANGE)
+
+## Velocità in più (o in meno) per la mossa di p: postbruciatore e arpione subito.
 func speed_extra(p: Player) -> int:
 	if not energy_on:
 		return 0
-	var x := 0
-	if p.al.has("bo"):
-		x += 2
-	if p.al.has("ho") and hook_target(p) != null:
-		x += 1
-	if slipstream(p):
-		x += 1
-	x -= p.drag
-	return x
+	return level(p.al, "bo") - p.drag
 
-## Navetta più vicina a p (per l'esca olografica).
-func _nearest(p: Player) -> Player:
-	var best: Player = null
-	var bd := INF
-	for q in _on_track(p):
-		var d := _cell_dist(p.cell, q.cell)
-		if d < bd:
-			bd = d
-			best = q
-	return best
-
-## Mine viste da p: le proprie sempre, le altre solo con il radar.
+## Mine viste da p: le proprie sempre, le altre col radar nei settori coperti.
 func sees_mine(p: Player, cell_id: int) -> bool:
 	if not mines.has(cell_id):
 		return false
-	return int(mines[cell_id]) == p.id or p.al.has("ra")
+	if int(mines[cell_id]) == p.id:
+		return true
+	if level(p.al, "ra") <= 0:
+		return false
+	var pc := int(cell(cell_id)["piece"])
+	return pc >= int(p.al.get("ra0", 0)) and pc <= int(p.al.get("ra1", -1))
 
-## Un colpo di cecchino su q: "hit", "shield" o "smoke".
-func _shot_on(q: Player) -> String:
-	if q.cell >= 0 and smoke.has(q.cell):
-		return "smoke"
-	if q.al.has("sh"):
-		return "shield"
-	return "hit"
+## Corsie fra la casella e il bordo più vicino (0 = sul bordo), e il lato del bordo (-1 sx, 1 dx).
+func edge_info(cell_id: int) -> Array:
+	var nl := 0
+	var c := cell_id
+	while nl < 6 and int(cell(c).get("side_l", -1)) >= 0:
+		c = int(cell(c)["side_l"])
+		nl += 1
+	var nr := 0
+	c = cell_id
+	while nr < 6 and int(cell(c).get("side_r", -1)) >= 0:
+		c = int(cell(c)["side_r"])
+		nr += 1
+	return [min(nl, nr), -1 if nl <= nr else 1]
 
-## Effetti dei gadget a fine mossa (prima che si contino i danni): arpione, mine, fumo,
-## mina sganciata, cecchini, EMP. Aggiunge i danni a o["dents"] e gli effetti visivi a o["gfx"].
+## Probabilità che il cecchino colpisca: precisione dai punti, meno per la velocità del
+## bersaglio e per la distanza dalle pareti del canyon, meno lo scudo.
+func sniper_chance(lv: int, speed: int, lanes_from_edge: int, shield: int) -> float:
+	var p: float = 0.3 + 0.2 * lv - 0.04 * max(0, speed - 4) - 0.08 * lanes_from_edge - 0.3 * shield
+	return clamp(p, 0.0, 0.95)
+
+## Casella davanti nella stessa corsia (la più dritta) o -1.
+func _straight(c: int) -> int:
+	var fw: Array = cell(c)["fwd"]
+	if fw.is_empty():
+		return -1
+	var h := course.heading(c)
+	var best: int = fw[0]
+	var bd := -INF
+	for f in fw:
+		var d: float = (cell(f)["pos"] - cell(c)["pos"]).normalized().dot(h)
+		if d > bd:
+			bd = d
+			best = f
+	return best
+
+## Volo del missile da from_cell: dritto per range caselle; le CME del bersaglio possono
+## farlo cambiare corsia o esplodere. Restituisce {cells, hits: [{pid, res}]}.
+func _missile(p: Player, from_cell: int, range_n: int, msgs: Array) -> Dictionary:
+	var cells := [from_cell]
+	var c := from_cell
+	var left := range_n
+	var occ := {}
+	for q in _on_track(p):
+		if q.finish_round == 0:
+			occ[q.cell] = q
+	var deflected := 0
+	while left > 0:
+		var n := _straight(c)
+		if n < 0:
+			msgs.append("il missile si schianta contro il fondo della gola")
+			return {"cells": cells, "res": "wall"}
+		c = n
+		cells.append(c)
+		left -= 1
+		while occ.has(c):
+			var q: Player = occ[c]
+			var cm := level(q.al, "cm")
+			if cm >= 3:
+				msgs.append("le CME di %s fanno esplodere il missile" % q.name)
+				return {"cells": cells, "res": "boom", "pid": q.id}
+			if (cm == 2 or (cm == 1 and rng.randf() < 0.5)) and deflected < 2:
+				deflected += 1
+				var side := "side_l" if rng.randf() < 0.5 else "side_r"
+				var s2 := int(cell(c).get(side, -1))
+				if s2 < 0:
+					s2 = int(cell(c).get("side_r" if side == "side_l" else "side_l", -1))
+				msgs.append("le CME di %s deviano il missile" % q.name)
+				occ.erase(c)
+				if s2 < 0:
+					return {"cells": cells, "res": "wall"}
+				c = s2
+				cells.append(c)
+				continue
+			var sh := level(q.al, "sh")
+			if sh > 0 and rng.randf() < 0.15 * sh:
+				msgs.append("lo scudo di %s regge al missile" % q.name)
+				return {"cells": cells, "res": "shield", "pid": q.id}
+			add_dent(q, 1)
+			msgs.append("il missile colpisce %s (+1 a lei)%s" % [q.name, ": va in pezzi!" if q.wrecked else ""])
+			return {"cells": cells, "res": "hit", "pid": q.id}
+	msgs.append("il missile si perde nel canyon")
+	return {"cells": cells, "res": "miss"}
+
+func _straight_back(c: int) -> int:
+	var bw: Array = cell(c).get("bwd", [])
+	return int(bw[0]) if not bw.is_empty() else -1
+
+## Effetti dei gadget a fine mossa (prima che si contino i danni): mine sul percorso,
+## mine sganciate, cecchini, missile, blast ionico. Aggiunge i danni a o["dents"] e gli
+## effetti visivi a o["gfx"].
 func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 	var gfx := []
 	var from: int = int(o.get("from", -1))
@@ -1133,20 +1176,12 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 	if not path.is_empty():
 		p.cell = end
 	var extra := 0
-	if p.al.has("bo") and not path.is_empty():
-		msgs.append("postbruciatore (+2)")
+	var bo := level(p.al, "bo")
+	if bo > 0 and not path.is_empty():
+		msgs.append("postbruciatore (+%d)" % bo)
 		gfx.append({"k": "boost", "pid": p.id})
-	if from >= 0 and slipstream(p, from) and not path.is_empty():
-		msgs.append("nella scia ionica (+1)")
 	if p.drag > 0:
 		msgs.append("trattenuta dall'arpione (−%d)" % p.drag)
-		p.drag = 0
-	if p.al.has("ho") and from >= 0:
-		var ht := hook_target(p, from)
-		if ht != null:
-			ht.drag += 1
-			msgs.append("aggancia %s con l'arpione (+1, e lei −1 alla prossima mossa)" % ht.name)
-			gfx.append({"k": "hook", "pid": p.id, "to": ht.id})
 	# mine sul percorso (tranne le proprie)
 	var boom := []
 	for t in path:
@@ -1158,153 +1193,161 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 		msgs.append("%s (+%d)" % ["salta su una mina" if boom.size() == 1 else "salta su %d mine" % boom.size(), boom.size()])
 		for t in boom:
 			gfx.append({"k": "mine", "cell": t})
-	# fumo sulle caselle attraversate (non dove si ferma)
-	if p.al.has("sm") and path.size() > 0:
-		var sc := []
-		for t in path:
-			if int(t) != end:
-				smoke[int(t)] = true
-				sc.append(int(t))
-		if from >= 0 and from != end:
-			smoke[from] = true
-			sc.append(from)
-		msgs.append("lascia una nube di fumo")
-		gfx.append({"k": "smoke", "cells": sc})
-	# mina sganciata sulla casella di partenza
-	if p.al.has("mi") and from >= 0 and from != end and not path.is_empty() and not mines.has(from):
-		mines[from] = p.id
-		gfx.append({"k": "drop", "cell": from, "pid": p.id})
-		p.al["mi_done"] = true
-	# cecchini
+	# mine sganciate sulle caselle lasciate dietro (dall'ultima prima dell'arrivo indietro)
+	var mi := level(p.al, "mi")
+	if mi > 0 and not path.is_empty():
+		var behind := []
+		for i in range(path.size() - 2, -1, -1):
+			behind.append(int(path[i]))
+		if from >= 0:
+			behind.append(from)
+		var dropped := 0
+		for t in behind:
+			if dropped >= mi:
+				break
+			if t == end or mines.has(t):
+				continue
+			mines[t] = p.id
+			dropped += 1
+			gfx.append({"k": "drop", "cell": t, "pid": p.id})
+		if dropped > 0:
+			msgs.append("sgancia %s" % ("una mina" if dropped == 1 else "%d mine" % dropped))
+	# cecchini puntati su questa navetta
+	var spd := int(o.get("speed", 0))
+	var ei := edge_info(end)
 	for q in players:
-		if q == p:
+		if q == p or level(q.al, "sn") <= 0 or int(q.al.get("snt", -1)) != p.id:
 			continue
-		for t in q.al.get("sn", []):
-			if int(t) != p.id:
-				continue
-			if p.al.has("de") and not p.al.has("de_used"):
-				p.al["de_used"] = true
-				var nq := _nearest(p)
-				if nq == null:
-					msgs.append("l'esca olografica assorbe il colpo del cecchino di %s" % q.name)
-					gfx.append({"k": "laser", "by": q.id, "pid": p.id, "res": "decoy"})
-					continue
-				var r2 := _shot_on(nq)
-				gfx.append({"k": "laser", "by": q.id, "pid": nq.id, "res": r2, "decoy": p.id})
-				match r2:
-					"hit":
-						add_dent(nq, 1)
-						msgs.append("l'esca devia il colpo del cecchino di %s su %s (+1 a lei)%s" % [q.name, nq.name, ": va in pezzi!" if nq.wrecked else ""])
-					"shield":
-						msgs.append("l'esca devia il colpo del cecchino di %s su %s, che lo para con lo scudo" % [q.name, nq.name])
-					_:
-						msgs.append("l'esca devia il colpo del cecchino di %s su %s, nascosta nel fumo" % [q.name, nq.name])
-				continue
-			var r := _shot_on(p)
-			gfx.append({"k": "laser", "by": q.id, "pid": p.id, "res": r})
-			match r:
-				"hit":
-					extra += 1
-					msgs.append("colpita dal cecchino di %s (+1)" % q.name)
-				"shield":
-					msgs.append("lo scudo para il colpo del cecchino di %s" % q.name)
-				_:
-					msgs.append("il fumo la nasconde al cecchino di %s" % q.name)
-	# impulso EMP
-	if p.al.has("em"):
-		var vic := []
-		for q in _on_track(p):
-			if q.finish_round != 0 and q.cell >= 0 and int(cell(q.cell)["piece"]) >= course.finish_piece:
-				continue
-			if _cell_dist(end, q.cell) <= course.cell_len * 1.6:
-				vic.append(q)
-		var names := []
-		for q in vic:
-			if not q.hand.is_empty():
-				var i := rng.randi_range(0, q.hand.size() - 1)
-				q.discard.append(q.hand[i])
-				q.hand.remove_at(i)
-			q.al.erase("sh")
-			q.al.erase("de")
-			names.append(q.name)
-		msgs.append("impulso EMP%s" % (" su " + ", ".join(names) if not names.is_empty() else " a vuoto"))
-		var ids := []
-		for q in vic:
-			ids.append(q.id)
-		gfx.append({"k": "emp", "cell": end, "pid": p.id, "victims": ids})
+		var ch := sniper_chance(level(q.al, "sn"), spd, int(ei[0]), level(p.al, "sh"))
+		var hit := rng.randf() < ch
+		var pct := int(round(ch * 100.0))
+		if hit:
+			extra += 1
+			msgs.append("colpita dal cecchino di %s (+1, mira %d%%)" % [q.name, pct])
+		elif level(p.al, "sh") > 0:
+			msgs.append("lo scudo devia il colpo del cecchino di %s (mira %d%%)" % [q.name, pct])
+		else:
+			msgs.append("il cecchino di %s la manca (mira %d%%)" % [q.name, pct])
+		gfx.append({"k": "laser", "by": q.id, "pid": p.id, "res": "hit" if hit else ("shield" if level(p.al, "sh") > 0 else "miss")})
+	# missile dritto davanti
+	var ms := level(p.al, "ms")
+	if ms > 0:
+		var r := _missile(p, end, 3 + 2 * ms, msgs)
+		r["k"] = "missile"
+		r["by"] = p.id
+		gfx.append(r)
+	# blast ionico sulla navetta più vicina davanti
+	var bl := level(p.al, "bl")
+	if bl > 0:
+		var t := _ahead(p, end, 3)
+		if t == null:
+			msgs.append("il blast ionico va a vuoto")
+		else:
+			var ti := edge_info(t.cell)
+			var side := "side_l" if int(ti[1]) < 0 else "side_r"
+			var c := t.cell
+			var moved := 0
+			var crashed := false
+			var occ := {}
+			for q in players:
+				if not q.wrecked and q.cell >= 0:
+					occ[q.cell] = true
+			for k in bl:
+				var n := int(cell(c).get(side, -1))
+				if n < 0:
+					crashed = true
+					break
+				if occ.has(n):
+					break
+				c = n
+				moved += 1
+			var from_c := t.cell
+			t.cell = c
+			if crashed:
+				add_dent(t, 1)
+			msgs.append("il blast ionico sposta %s di %d corsi%s%s" % [t.name, moved, "a" if moved == 1 else "e", " contro il bordo (+1 a lei)" if crashed else ""])
+			gfx.append({"k": "blast", "pid": p.id, "to": t.id, "from": from_c, "cell": c})
 	if extra > 0:
 		o["dents"] = int(o["dents"]) + extra
 	o["gfx"] = gfx
 
-# ---------- CPU: energia ----------
+## Turni che mancano, stimati dai passi al traguardo.
+func _rounds_left(p: Player) -> float:
+	if p.cell < 0:
+		return 1.0
+	return max(1.0, float(int(cell(p.cell)["togo"])) / 5.0)
+
+# ---------- CPU: punti gadget ----------
 ## Scelta dei gadget per la CPU (usa randf, non il generatore della partita: online la fa
-## solo chi ha creato la stanza e la pubblica).
+## solo chi ha creato la stanza e la pubblica). Spende in modo da arrivare in fondo.
 func ai_alloc(p: Player) -> Dictionary:
-	var e := p.energy
 	var a := {}
+	if p.energy <= 0 or p.cell < 0:
+		return a
+	var rate: float = float(p.energy) / _rounds_left(p)
+	var spend := int(floor(rate * 1.3 + randf()))
+	spend = clampi(spend, 0, p.energy)
+	if spend <= 0:
+		return a
 	var order := race_order()
 	var rank := order.find(p)
-	var leader: bool = rank == 0
 	var c0 := cell(p.cell)
-	# riparazione con tanti danni
-	if p.dents >= 3 and e >= 2:
-		a["re"] = true
-		e -= 2
-	elif p.dents == 2 and e >= 4 and randf() < 0.6:
-		a["re"] = true
-		e -= 2
-	# chi è davanti teme i cecchini
-	if (leader or rank == 1) and e >= 1 and randf() < (0.75 if leader else 0.4):
-		if randf() < 0.75:
-			a["sh"] = true
-		else:
-			a["de"] = true
-		e -= 1
-	# cecchino sulla prima navetta davanti (o sul capofila)
-	if e >= 2 and round_n > 1 and randf() < 0.55:
-		var tgt: Player = null
-		if rank > 0:
-			tgt = order[0] if randf() < 0.6 else order[rank - 1]
-		elif order.size() > 1:
-			tgt = order[1]
-		if tgt != null and tgt != p:
-			a["sn"] = [tgt.id]
-			e -= 2
-	# postbruciatore se la prossima curva è lontana
-	var nl := course.next_limit(float(c0["s"]))
-	var far: bool = nl.is_empty() or (float(nl["s"]) - float(c0["s"])) / course.cell_len > 12.0
-	if e >= 1 and far and randf() < 0.55:
-		a["bo"] = true
-		e -= 1
-	# mina se qualcuno è subito dietro
-	var behind := false
+	var opts := []
+	# attacchi
+	if order.size() > 1:
+		var tgt: Player = order[0] if rank > 0 else order[1]
+		if rank > 1 and randf() < 0.4:
+			tgt = order[rank - 1]
+		opts.append(["sn", 1.2 + (0.6 if rank > 0 else 0.0), tgt.id])
+	var behind := 0
 	for q in _on_track(p):
 		var d: int = int(cell(q.cell)["togo"]) - int(c0["togo"])
-		if d >= 1 and d <= 4:
-			behind = true
-	if e >= 1 and behind and randf() < 0.55:
-		a["mi"] = true
-		e -= 1
-	# arpione se c'è qualcuno davanti a tiro
-	if e >= 1 and hook_target(p) != null and randf() < 0.5:
-		a["ho"] = true
-		e -= 1
-	# EMP se ci sono navette vicine
-	var near := 0
-	for q in _on_track(p):
-		if _cell_dist(p.cell, q.cell) <= course.cell_len * 2.5:
-			near += 1
-	if e >= 2 and near >= 1 and randf() < 0.35:
-		a["em"] = true
-		e -= 2
-	# radar se ci sono mine in pista
-	if e >= 1 and mines.size() > 0 and randf() < 0.5:
-		a["ra"] = true
-		e -= 1
-	# fumo per coprire chi segue o per giocare d'astuzia
-	if e >= 1 and not a.has("sh") and randf() < 0.15:
-		a["sm"] = true
-		e -= 1
+		if d >= 1 and d <= 5:
+			behind += 1
+	if behind > 0:
+		opts.append(["mi", 0.8 + behind * 0.3, -1])
+	if _ahead(p, p.cell, 8) != null:
+		opts.append(["ms", 1.0, -1])
+		opts.append(["bl", 0.8, -1])
+		opts.append(["ho", 1.2, -1])
+	# difese
+	if rank <= 1:
+		opts.append(["sh", 2.2 if rank == 0 else 1.4, -1])
+	if behind > 0:
+		opts.append(["cm", 0.6 + behind * 0.4, -1])
+	if p.dents >= 2:
+		opts.append(["sh", 1.5 + p.dents * 0.5, -1])
+	if mines.size() > 0:
+		opts.append(["ra", 0.8 + 0.3 * mines.size(), -1])
+	# movimento: postbruciatore lontano dalle curve
+	var nl := course.next_limit(float(c0["s"]))
+	if nl.is_empty() or (float(nl["s"]) - float(c0["s"])) / course.cell_len > 10.0:
+		opts.append(["bo", 1.6, -1])
+	if opts.is_empty():
+		return a
+	while spend > 0 and not opts.is_empty():
+		var tot := 0.0
+		for o in opts:
+			tot += float(o[1])
+		var r := randf() * tot
+		var pick: Array = opts[0]
+		for o in opts:
+			r -= float(o[1])
+			if r <= 0:
+				pick = o
+				break
+		var k: String = pick[0]
+		var lv: int = min(spend, 1 + (1 if randf() < 0.35 else 0))
+		lv = min(lv, MAX_LEVEL - level(a, k))
+		if lv <= 0:
+			opts.erase(pick)
+			continue
+		a[k] = level(a, k) + lv
+		if k == "sn":
+			a["snt"] = pick[2]
+		spend -= lv
+		if randf() < 0.5:
+			opts.erase(pick)
 	if not alloc_ok(p, a):
 		return {}
 	return a

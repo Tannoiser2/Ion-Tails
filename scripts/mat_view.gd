@@ -74,7 +74,8 @@ func _draw() -> void:
 				var s2: float = min(rect.size.x / tsz.x, rect.size.y / tsz.y) * 0.98
 				var tr := Rect2(rect.get_center() - tsz * s2 * 0.5, tsz * s2)
 				draw_texture_rect(tt, tr, false)
-		elif has_card:
+		else:
+			# all'inizio i motori sono a 3, come i cani stampati sulla plancia di Snow Tails
 			var ct := CardArt.card(val, player.seat)
 			if ct:
 				var grow := rect.grow(rect.size.x * 0.03)
