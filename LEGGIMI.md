@@ -30,11 +30,11 @@ si scoprono solo quando agiscono.
 | Attacchi | Missile (dritto nella tua corsia, a fine mossa) | gittata 7 | gittata 10 |
 | Difese | Scudo (bolla azzurra da quando la navetta parte) | −40% alla mira dei cecchini, ferma i missili il 20% delle volte | −80%, 40% |
 | Difese | Radar (onda verde e conteggio a inizio turno) | mine fino a 12 caselle davanti | fino a 24 |
-| Difese | CME (contro i missili) | il missile cambia corsia | il missile esplode |
+| Difese | CME (contro i missili) | il missile cambia corsia, verso un'altra navetta a tiro se c'è, altrimenti a caso | il missile esplode |
 | Difese | Invisibilità | 1 turno | 2 turni |
 | Movimento | Postbruciatore | +1 velocità | +2 velocità |
-| Movimento | Arpione (navetta più vicina davanti, fino a 6 passi) | −1 velocità | −2 velocità |
-| Movimento | Blast ionico (navetta più vicina davanti, fino a 3 passi) | 1 corsia verso il bordo | 2 corsie |
+| Movimento | Arpione (navetta più vicina davanti, fino a 6 passi), subito dopo la scelta | indietro di 1 casella | indietro di 2 caselle |
+| Movimento | Blast ionico: onda dalla propria casella, spinge di 1 corsia lontano da sé tutte le navette vicine | entro 1 casella | entro 2 caselle |
 
 Mira del cecchino: −4% per ogni punto di velocità del bersaglio oltre 4, −8% per ogni corsia fra il
 bersaglio e la parete del canyon. **Invisibilità**: la navetta sparisce agli altri (chi la guida vede una

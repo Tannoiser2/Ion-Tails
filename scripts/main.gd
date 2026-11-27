@@ -1135,15 +1135,15 @@ func show_help(force_fan := false) -> void:
 [b]Difese[/b]
 [b]Scudo.[/b] Si accende quando la navetta parte (prima lo vedi solo tu): una bolla azzurra attorno alla navetta per tutto il turno. Toglie il 40%% (1 punto) o l'80%% (2 punti) alla mira dei cecchini, ma ferma i missili (che arrivano da dietro) solo il 20%% o il 40%% delle volte.
 [b]Radar.[/b] Vedi le mine fino a 12 caselle davanti a te con 1 punto, fino a 24 con 2 (e quelle appena dietro). La rotta le evita quando può. A inizio turno un'onda verde parte dalla tua navetta e una scritta dice quante mine ha trovato.
-[b]CME.[/b] Contromisure contro i missili: con 1 punto il missile cambia corsia (e può colpire un'altra navetta), con 2 esplode.
+[b]CME.[/b] Contromisure contro i missili: con 1 punto il missile cambia corsia; se in una delle corsie accanto c'è un'altra navetta a tiro, va verso di lei (e può colpirla), altrimenti il lato è a caso. Con 2 punti il missile esplode.
 [b]Invisibilità.[/b] Tu vedi la tua navetta come una sagoma olografica azzurra. Con 1 punto sparisci alla vista degli altri per questo turno, con 2 anche per il seguente: cecchini, missili, arpione e blast non ti trovano, ma tu puoi sganciare mine e sparare. Le mine colpiscono anche chi è invisibile.
 
 [b]Mezzi danni.[/b] Tutti i gadget fanno mezzo danno: ne servono due per un danno intero.
 
 [b]Movimento[/b]
 [b]Postbruciatore.[/b] +1 (1 punto) o +2 (2 punti) alla velocità di questa mossa: conta anche per i limiti delle curve.
-[b]Arpione.[/b] La navetta più vicina davanti a te (fino a %d passi) ha −1 (1 punto) o −2 (2 punti) alla velocità in questo turno.
-[b]Blast ionico.[/b] A fine mossa spinge di lato la navetta più vicina davanti a te (fino a 3 passi) di una corsia (1 punto) o due (2 punti), verso il bordo più vicino: se ci sbatte prende mezzo danno.""" % [int(SledGame.BUDGET_DIV), SledGame.HOOK_RANGE]))
+[b]Arpione.[/b] Appena tutti hanno scelto i gadget, la navetta più vicina davanti a te (fino a %d passi) viene tirata subito indietro di 1 casella (1 punto) o 2 (2 punti), se dietro di lei c'è posto.
+[b]Blast ionico.[/b] A fine mossa parte un'onda dalla tua casella: tutte le navette entro 1 casella (1 punto) o 2 (2 punti), davanti, dietro o di lato, vengono spinte di una corsia lontano da te (se sono nella tua corsia, verso il bordo più vicino). Chi sbatte contro il bordo prende mezzo danno; se la casella accanto è occupata resta dov'è.""" % [int(SledGame.BUDGET_DIV), SledGame.HOOK_RANGE]))
 	c1.add_child(UIKit.heading("Varianti"))
 	c1.add_child(_rule_text("""[b]Simultaneo.[/b] Tutti programmano la mossa (carte e casella d'arrivo) senza vedere quella degli altri, poi le navette partono insieme: chi ha più caselle da fare va più veloce. Due navette non entrano mai nella stessa casella nello stesso momento: se possono la evitano, altrimenti entra la più veloce (a parità, chi era più avanti) e l'altra si ferma prima con mezzo danno.
 
@@ -1520,9 +1520,9 @@ func _energy_finish() -> void:
 	_in_energy = false
 	var parts := []
 	for h in game.apply_hooks():
-		parts.append("[b]%s[/b] aggancia [b]%s[/b] con l'arpione (−%d)" % [h["by"].name, h["to"].name, h["lv"]])
+		parts.append("[b]%s[/b] aggancia [b]%s[/b] con l'arpione e la tira indietro di %d" % [h["by"].name, h["to"].name, h["n"]])
 		if not online.get("catchup", false):
-			board.hook_fx(h["by"].id, h["to"].id, int(h["lv"]))
+			board.hook_fx(h["by"].id, h["to"].id, int(h["n"]), true)
 	var me = _viewer()
 	if me != null and not online.get("catchup", false):
 		var tags := []
@@ -3972,7 +3972,7 @@ func _replay_gfx(g: Dictionary, mines_now: Dictionary) -> Dictionary:
 		"blast":
 			board.blast_fx(int(g["pid"]), int(g["to"]), bool(g.get("crash", false)), int(g.get("n", 1)))
 		"hook":
-			board.hook_fx(int(g["pid"]), int(g["to"]), int(g.get("lv", 1)))
+			board.hook_fx(int(g["pid"]), int(g["to"]), int(g.get("lv", 1)), true)
 		"boost":
 			board.boost_fx(int(g["pid"]), int(g.get("lv", 1)))
 	if String(g.get("k", "")) in ["mine", "drop"]:

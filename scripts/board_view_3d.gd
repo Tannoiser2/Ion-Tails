@@ -1131,7 +1131,9 @@ func emp_fx(cell_id: int) -> void:
 	spark(at, Color("8af6ff"), 1.2)
 
 ## Arpione: cavo luminoso fra due navette per un attimo.
-func hook_fx(pid: int, to_pid: int, lv := 0) -> void:
+var _blast_wave := {}
+
+func hook_fx(pid: int, to_pid: int, lv := 0, show_n := false) -> void:
 	var a := ship_pos(pid)
 	var b := ship_pos(to_pid)
 	var beam := MeshInstance3D.new()
@@ -1152,8 +1154,8 @@ func hook_fx(pid: int, to_pid: int, lv := 0) -> void:
 	var tw := create_tween()
 	tw.tween_property(bm, "albedo_color:a", 0.0, 0.7).set_delay(0.3)
 	tw.tween_callback(beam.queue_free)
-	if lv > 0:
-		popup(b, "ARPIONE −%d" % lv, C_GOOD)
+	if show_n or lv > 0:
+		popup(b, "ARPIONE: INDIETRO DI %d" % lv if lv > 0 else "ARPIONE: BLOCCATO", C_GOOD if lv > 0 else C_MISS)
 
 ## Postbruciatore: fiammata dai motori.
 func boost_fx(pid: int, lv := 1) -> void:
@@ -1237,7 +1239,29 @@ func _blast_at(at: Vector3, sz := 1.0) -> void:
 
 ## Blast ionico: onda azzurra dalla navetta verso quella spinta di lato.
 func blast_fx(pid: int, to_pid: int, crash := false, n := 1) -> void:
-	hook_fx(pid, to_pid)
+	# onda d'urto che parte dalla navetta (una sola per turno anche con più bersagli)
+	var now := Time.get_ticks_msec()
+	if int(_blast_wave.get(pid, -100000)) < now - 300:
+		_blast_wave[pid] = now
+		var at := ship_pos(pid)
+		for i in 3:
+			var r := _ring(0.3, Color("4fc8e8"), 0.012)
+			var rm := TeamModel.glow(Color("4fc8e8"), 1.0, 0.75)
+			r.material_override = rm
+			r.position = at + Vector3(0, 0.05, 0)
+			r.scale = Vector3(0.3, 0.08, 0.3)
+			_fx.add_child(r)
+			var tw := create_tween()
+			tw.tween_interval(0.15 * i)
+			tw.set_parallel(true)
+			tw.tween_property(r, "scale", Vector3(4.5, 0.08, 4.5), 0.7).set_ease(Tween.EASE_OUT)
+			tw.tween_property(rm, "albedo_color:a", 0.0, 0.7).set_ease(Tween.EASE_IN)
+			tw.chain().tween_callback(r.queue_free)
+		spark(at, Color("8af6ff"), 0.8)
+		if to_pid < 0:
+			popup(at, "BLAST IONICO: NESSUNO", C_MISS)
+	if to_pid < 0:
+		return
 	emp_fx_at(ship_pos(to_pid))
 	if _teams.has(to_pid):
 		(_teams[to_pid]["node"] as TeamModel).shake(0.8)
@@ -1245,9 +1269,9 @@ func blast_fx(pid: int, to_pid: int, crash := false, n := 1) -> void:
 		_blast_at(ship_pos(to_pid), 0.5)
 		popup(ship_pos(to_pid), "BLAST: CONTRO IL BORDO", C_HIT)
 	elif n > 0:
-		popup(ship_pos(to_pid), "BLAST: SPOSTATA", C_GOOD)
+		popup(ship_pos(to_pid), "BLAST: SPINTA", C_GOOD)
 	else:
-		popup(ship_pos(to_pid), "BLAST: BLOCCATO", C_MISS)
+		popup(ship_pos(to_pid), "BLAST: BLOCCATA", C_MISS)
 
 func emp_fx_at(at: Vector3) -> void:
 	var r := _ring(0.25, Color("8af6ff"), 0.03)

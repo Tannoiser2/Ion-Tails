@@ -33,7 +33,6 @@ class Player:
 	# --- Ion Tails: energia e gadget ---
 	var energy := 0            # punti gadget rimasti
 	var al := {}               # punti investiti nel turno: chiave di GADGETS -> livello; "snt" = bersaglio del cecchino
-	var drag := 0              # rallentamento da arpione in questo turno
 	var spent := 0             # punti spesi in tutta la gara (statistica)
 	var invis_until := 0       # invisibile fino a questo turno compreso (0 = mai)
 
@@ -77,11 +76,11 @@ const GADGETS := {
 	"ms": ["Missile", "Attacchi", "a fine mossa spara dritto davanti nella tua corsia: gittata 7 caselle (1 punto) o 10 (2 punti). Mezzo danno"],
 	"sh": ["Scudo", "Difese", "toglie il 40% (1 punto) o l'80% (2 punti) alla mira dei cecchini, ma ferma i missili da dietro solo il 20% o il 40% delle volte"],
 	"ra": ["Radar", "Difese", "rivela le mine fino a 12 caselle davanti a te (1 punto) o fino a 24 (2 punti), e quelle appena dietro"],
-	"cm": ["CME", "Difese", "contromisure contro i missili: con 1 punto il missile cambia corsia, con 2 esplode"],
+	"cm": ["CME", "Difese", "contromisure contro i missili: con 1 punto il missile cambia corsia, verso un'altra navetta se ce n'è una a tiro, altrimenti a caso; con 2 esplode"],
 	"iv": ["Invisibilità", "Difese", "sparisci alla vista degli altri per 1 turno (1 punto) o 2 turni (2 punti): cecchini, missili, arpione e blast non ti trovano, ma tu puoi continuare a sganciare mine e sparare"],
 	"bo": ["Postbruciatore", "Movimento", "+1 (1 punto) o +2 (2 punti) alla velocità di questa mossa; conta anche per i limiti delle curve"],
-	"ho": ["Arpione", "Movimento", "la navetta più vicina davanti a te (fino a 6 passi) ha −1 (1 punto) o −2 (2 punti) alla velocità in questo turno"],
-	"bl": ["Blast ionico", "Movimento", "a fine mossa spinge di lato la navetta più vicina davanti (fino a 3 passi) di una corsia (1 punto) o due (2 punti), verso il bordo; se ci sbatte, mezzo danno"],
+	"ho": ["Arpione", "Movimento", "appena tutti hanno scelto, tira subito indietro di 1 casella (1 punto) o 2 (2 punti) la navetta più vicina davanti a te (fino a 6 passi)"],
+	"bl": ["Blast ionico", "Movimento", "a fine mossa, un'onda dalla tua casella spinge di una corsia, lontano da te, tutte le navette entro 1 casella (1 punto) o 2 (2 punti); chi sbatte contro il bordo prende mezzo danno"],
 }
 const GADGET_ORDER := ["sn", "mi", "ms", "sh", "ra", "cm", "iv", "bo", "ho", "bl"]
 ## Livello massimo diverso da MAX_LEVEL
@@ -977,7 +976,6 @@ func energy_round_start() -> void:
 	smoke = {}
 	for p in players:
 		p.al = {}
-		p.drag = 0
 
 static func gadget_name(k: String) -> String:
 	return String(GADGETS[k][0])
@@ -1044,9 +1042,22 @@ func apply_hooks() -> Array:
 			continue
 		var t := hook_target(p)
 		if t != null:
-			t.drag += lv
+			var occ := {}
+			for q in players:
+				if not q.wrecked and q.cell >= 0:
+					occ[q.cell] = true
+			var c := t.cell
+			var n := 0
+			for k in lv:
+				var b := _straight_back(c)
+				if b < 0 or occ.has(b):
+					break
+				c = b
+				n += 1
+			t.cell = c
 			p.al["hot"] = t.id
-			out.append({"by": p, "to": t, "lv": lv})
+			p.al["hon"] = n
+			out.append({"by": p, "to": t, "lv": lv, "n": n})
 	return out
 
 ## Altre navette in pista (non distrutte).
@@ -1082,7 +1093,7 @@ func hook_target(p: Player) -> Player:
 func speed_extra(p: Player) -> int:
 	if not energy_on:
 		return 0
-	return level(p.al, "bo") - p.drag
+	return level(p.al, "bo")
 
 ## Mine viste da p: le proprie sempre, le altre col radar nei settori coperti.
 func sees_mine(p: Player, cell_id: int) -> bool:
@@ -1164,10 +1175,7 @@ func _missile(p: Player, from_cell: int, range_n: int, msgs: Array) -> Dictionar
 				return {"cells": cells, "res": "boom", "pid": q.id, "defl": defl}
 			if cm == 1 and deflected < 2:
 				deflected += 1
-				var side := "side_l" if rng.randf() < 0.5 else "side_r"
-				var s2 := int(cell(c).get(side, -1))
-				if s2 < 0:
-					s2 = int(cell(c).get("side_r" if side == "side_l" else "side_l", -1))
+				var s2 := _deflect_side(c, left, occ, q)
 				msgs.append("le CME di %s deviano il missile" % q.name)
 				defl.append([cells.size() - 1, q.id])
 				occ.erase(c)
@@ -1185,6 +1193,72 @@ func _missile(p: Player, from_cell: int, range_n: int, msgs: Array) -> Dictionar
 			return {"cells": cells, "res": "hit", "pid": q.id, "defl": defl}
 	msgs.append("il missile si perde nel canyon")
 	return {"cells": cells, "res": "miss", "defl": defl}
+
+## CME: la corsia verso cui deviare il missile. Se in una delle due corsie accanto c'è
+## un'altra navetta a tiro (entro la gittata rimasta) il missile va verso la più vicina,
+## altrimenti la corsia è a caso. -1 se non c'è nessuna corsia accanto.
+func _deflect_side(c: int, left: int, occ: Dictionary, q: Player) -> int:
+	var best := -1
+	var bd := 999
+	var opts := []
+	for side in ["side_l", "side_r"]:
+		var s2 := int(cell(c).get(side, -1))
+		if s2 < 0:
+			continue
+		opts.append(s2)
+		var x := s2
+		for d in left + 1:
+			if occ.has(x) and occ[x] != q:
+				if d < bd:
+					bd = d
+					best = s2
+				break
+			x = _straight(x)
+			if x < 0:
+				break
+	if best >= 0:
+		return best
+	if opts.is_empty():
+		return -1
+	return opts[0] if opts.size() == 1 or rng.randf() < 0.5 else opts[1]
+
+## Il lato (side_l / side_r) di t lontano da p; se stanno nella stessa corsia, verso il bordo più vicino.
+func _away_side(from_cell: int, t: Player) -> String:
+	var c: Dictionary = cell(t.cell)
+	var lat
+	if int(c.get("side_l", -1)) >= 0:
+		lat = cell(int(c["side_l"]))["pos"] - c["pos"]
+	elif int(c.get("side_r", -1)) >= 0:
+		lat = c["pos"] - cell(int(c["side_r"]))["pos"]
+	else:
+		return "side_l"
+	var off = c["pos"] - cell(from_cell)["pos"]
+	var dl: float = off.dot(lat.normalized())
+	if dl > 0.25 * lat.length():
+		return "side_l"
+	if dl < -0.25 * lat.length():
+		return "side_r"
+	return "side_l" if int(edge_info(t.cell)[1]) < 0 else "side_r"
+
+## Caselle a distanza ≤ r da c (avanti, indietro, di lato).
+func _near_cells(c: int, r: int) -> Dictionary:
+	var dist := {c: 0}
+	var front := [c]
+	for d in r:
+		var nx := []
+		for x in front:
+			var cx: Dictionary = cell(x)
+			var nb: Array = []
+			nb.append_array(cx.get("fwd", []))
+			nb.append_array(cx.get("bwd", []))
+			nb.append(int(cx.get("side_l", -1)))
+			nb.append(int(cx.get("side_r", -1)))
+			for y in nb:
+				if int(y) >= 0 and not dist.has(int(y)):
+					dist[int(y)] = d + 1
+					nx.append(int(y))
+		front = nx
+	return dist
 
 func _straight_back(c: int) -> int:
 	var bw: Array = cell(c).get("bwd", [])
@@ -1205,10 +1279,8 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 	if bo > 0 and not path.is_empty():
 		msgs.append("postbruciatore (+%d)" % bo)
 		gfx.append({"k": "boost", "pid": p.id, "lv": bo})
-	if p.drag > 0:
-		msgs.append("trattenuta dall'arpione (−%d)" % p.drag)
 	if p.al.has("hot"):
-		gfx.append({"k": "hook", "pid": p.id, "to": int(p.al["hot"]), "lv": level(p.al, "ho")})
+		gfx.append({"k": "hook", "pid": p.id, "to": int(p.al["hot"]), "lv": int(p.al.get("hon", level(p.al, "ho")))})
 	# mine sul percorso (tranne le proprie)
 	var boom := []
 	for t in path:
@@ -1267,40 +1339,54 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 		r["k"] = "missile"
 		r["by"] = p.id
 		gfx.append(r)
-	# blast ionico sulla navetta più vicina davanti
+	# blast ionico: onda dalla casella della navetta, spinge di una corsia chi è vicino
 	var bl := level(p.al, "bl")
 	if bl > 0:
-		var t := _ahead(p, end, 3)
-		if t == null:
-			msgs.append("il blast ionico va a vuoto")
-		else:
-			var ti := edge_info(t.cell)
-			var side := "side_l" if int(ti[1]) < 0 else "side_r"
-			var c := t.cell
-			var moved := 0
+		var near := _near_cells(end, bl)
+		var hit := []
+		for q in _on_track(p):
+			if q.finish_round == 0 and not invisible(q) and near.has(q.cell):
+				hit.append(q)
+		if hit.is_empty():
+			msgs.append("il blast ionico non trova nessuno")
+			gfx.append({"k": "blast", "pid": p.id, "to": -1, "cell": end, "n": 0})
+		var occ := {}
+		for q in players:
+			if not q.wrecked and q.cell >= 0:
+				occ[q.cell] = true
+		for t: Player in hit:
+			var side := _away_side(end, t)
+			var n := int(cell(t.cell).get(side, -1))
+			var from_c: int = t.cell
 			var crashed := false
-			var occ := {}
-			for q in players:
-				if not q.wrecked and q.cell >= 0:
-					occ[q.cell] = true
-			for k in bl:
-				var n := int(cell(c).get(side, -1))
-				if n < 0:
-					crashed = true
-					break
-				if occ.has(n):
-					break
-				c = n
-				moved += 1
-			var from_c := t.cell
-			t.cell = c
-			if crashed:
+			var moved := 0
+			if n < 0:
+				crashed = true
 				add_half_dent(t)
-			msgs.append("il blast ionico sposta %s di %d corsi%s%s" % [t.name, moved, "a" if moved == 1 else "e", " contro il bordo (mezzo danno a lei)" if crashed else ""])
-			gfx.append({"k": "blast", "pid": p.id, "to": t.id, "from": from_c, "cell": c, "crash": crashed, "n": moved})
+			elif not occ.has(n):
+				occ.erase(t.cell)
+				occ[n] = true
+				t.cell = n
+				moved = 1
+				_fix_record_end(t)
+			if crashed:
+				msgs.append("il blast ionico scaraventa %s contro il bordo (mezzo danno)" % t.name)
+			elif moved:
+				msgs.append("il blast ionico sposta %s di una corsia" % t.name)
+			else:
+				msgs.append("il blast ionico non riesce a spostare %s" % t.name)
+			gfx.append({"k": "blast", "pid": p.id, "to": t.id, "from": from_c, "cell": t.cell, "crash": crashed, "n": moved})
 	if halves > 0:
 		o["ghalf"] = halves
 	o["gfx"] = gfx
+
+## Se t ha già corso in questo turno, aggiorna dove è finita (per il replay).
+func _fix_record_end(t: Player) -> void:
+	if history.size() < round_n:
+		return
+	for r in history[round_n - 1]:
+		if int(r["pid"]) == t.id:
+			r["end"] = t.cell
 
 ## Turni che mancano, stimati dai passi al traguardo.
 func _rounds_left(p: Player) -> float:
@@ -1373,11 +1459,15 @@ func ai_alloc(p: Player) -> Dictionary:
 	if mi_v > 0.3:
 		opts.append(["mi", mi_v + 0.4, 2 if mi_v > 1.2 else 1, -1])
 	# BLAST: qualcuno subito davanti, meglio se vicino al bordo (rischia di sbatterci)
+	var near_n := 0
+	var near_edge := false
 	for x in vis_ahead:
-		if int(x[1]) <= 3:
-			var edge := int(edge_info((x[0] as Player).cell)[0])
-			opts.append(["bl", 0.9 + (0.7 if edge <= 1 else 0.0), 2 if edge <= 1 else 1, -1])
-			break
+		if int(x[1]) <= 2:
+			near_n += 1
+			if int(edge_info((x[0] as Player).cell)[0]) == 0:
+				near_edge = true
+	if near_n > 0:
+		opts.append(["bl", 0.7 + 0.3 * near_n + (0.6 if near_edge else 0.0), 2 if near_n > 1 else 1, -1])
 	# ARPIONE: qualcuno davanti a portata, soprattutto se mi sta battendo di poco
 	for x in vis_ahead:
 		if int(x[1]) <= HOOK_RANGE:
