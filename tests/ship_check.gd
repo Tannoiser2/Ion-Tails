@@ -55,6 +55,7 @@ func _init() -> void:
 						print("ERRORE: gadget non montato ", k); ok = false
 				game.apply_alloc(p, a)
 			game.apply_hooks()
+			game.apply_siphons()
 			for p in game.race_order():
 				if not game.racing(p): continue
 				if p.hand.is_empty():

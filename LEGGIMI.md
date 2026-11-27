@@ -92,6 +92,20 @@ con l'1, lunga e intensa con il 5. Nel replay si rivedono tutti gli effetti dei 
 - `tests/online_play.gd` con `tests/firebase_mock.py`: due istanze giocano una gara online
   (usare `ST_SESSION` diverso per le due istanze) e le impronte finali devono coincidere.
 
+## Gadget in più (da montare in officina)
+| Categoria | Gadget | 1 punto | 2 punti |
+|---|---|---|---|
+| Attacchi | Impulso EMP | spegne scudo, CME, radar, esca e ancora entro 1 casella | entro 2 |
+| Attacchi | Scia di sabbia | 2 caselle dietro diventano sabbia | 4 caselle |
+| Attacchi | Sifone ionico (subito dopo la scelta) | ruba 1 punto gadget alla navetta più vicina | ne ruba 3 |
+| Difese | Esca olografica | il primo missile colpisce l'esca | anche i cecchini |
+| Difese | Nanobot | ripara mezzo danno | un danno |
+| Difese | Ancora magnetica (solo 1 punto) | arpione e blast non la spostano | — |
+| Movimento | Stabilizzatori | +1 al limite delle curve | +2 |
+| Movimento | Salto gravitazionale | scavalca le navette | anche le mine |
+
+I token dei gadget nuovi sono fatti da `tools/make_tokens.py` nello stile di quelli disegnati.
+
 ## Officina
 Menu → «Officina» (`scripts/workshop.gd`, regole e salvataggi in `scripts/ship_build.gd`): ogni
 giocatore costruisce la sua navetta con 15 crediti e le dà un nome.

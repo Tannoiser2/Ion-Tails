@@ -1239,7 +1239,17 @@ func show_help(force_fan := false) -> void:
 [b]Movimento[/b]
 [b]Postbruciatore.[/b] +1 (1 punto) o +2 (2 punti) alla velocità di questa mossa: conta anche per i limiti delle curve.
 [b]Arpione.[/b] Appena tutti hanno scelto i gadget, la navetta più vicina davanti a te (fino a %d passi) viene tirata subito indietro di 1 casella (1 punto) o 2 (2 punti), se dietro di lei c'è posto.
-[b]Blast ionico.[/b] A fine mossa parte un'onda dalla tua casella: tutte le navette entro 1 casella (1 punto) o 2 (2 punti), davanti, dietro o di lato, vengono spinte di una corsia lontano da te (se sono nella tua corsia, verso il bordo più vicino). Chi sbatte contro il bordo prende mezzo danno; se la casella accanto è occupata resta dov'è.""" % [int(SledGame.BUDGET_DIV), SledGame.HOOK_RANGE]))
+[b]Blast ionico.[/b] A fine mossa parte un'onda dalla tua casella: tutte le navette entro 1 casella (1 punto) o 2 (2 punti), davanti, dietro o di lato, vengono spinte di una corsia lontano da te (se sono nella tua corsia, verso il bordo più vicino). Chi sbatte contro il bordo prende mezzo danno; se la casella accanto è occupata resta dov'è.
+
+[b]Gadget in più (da montare in officina)[/b]
+[b]Impulso EMP[/b] (attacco). A fine mossa spegne per il resto del turno scudo, CME, radar, esca e ancora delle navette entro 1 casella (1 punto) o 2 (2 punti).
+[b]Scia di sabbia[/b] (attacco). Le ultime 2 caselle (1 punto) o 4 (2 punti) che ti lasci dietro diventano sabbia.
+[b]Sifone ionico[/b] (attacco). Appena tutti hanno scelto, ruba 1 punto gadget (1 punto) o 3 (2 punti) alla navetta più vicina, davanti o dietro, entro 6 passi.
+[b]Esca olografica[/b] (difesa). Il primo missile che ti arriva colpisce l'esca; con 2 punti anche i cecchini sparano all'esca.
+[b]Nanobot[/b] (difesa). A fine mossa riparano mezzo danno (1 punto) o un danno (2 punti).
+[b]Ancora magnetica[/b] (difesa, 1 punto). Per questo turno arpione e blast ionico non ti spostano.
+[b]Stabilizzatori[/b] (movimento). +1 o +2 al limite delle curve in questa mossa.
+[b]Salto gravitazionale[/b] (movimento). In questa mossa scavalchi le altre navette; con 2 punti salti anche sopra le mine.""" % [int(SledGame.BUDGET_DIV), SledGame.HOOK_RANGE]))
 	c1.add_child(UIKit.heading("Officina"))
 	c1.add_child(_rule_text("""Dal menu, «Officina»: costruisci la tua navetta con [b]%d crediti[/b] e dalle un nome. [b]Scafo[/b], cioè quanti danni reggi (ogni danno è una carta inutile che occupa posto in mano): leggero (gratis, il 4° danno la distrugge), medio (2 crediti, il 5°, come di serie) o pesante (4 crediti: il primo danno non toglie carte e solo il 6° la distrugge). [b]Mazzo dei motori[/b], le tue 20 carte da 1 a 5: economico (gratis, più carte basse), bilanciato (1 credito, 4 per valore) o turbo (4 crediti, più carte alte). [b]Tipo di motori[/b], cioè come guidi: normali (gratis), oppure per 2 crediti stabili (a ogni mossa puoi derivare di una corsia in meno, se ti conviene), agili (in curva troppo forte il primo danno è solo mezzo danno), potenti (+1 alla velocità con i motori pari, ma con motori diversi derivi di 1 in più) o ionici (+1 punto gadget ogni 2 turni). [b]Batteria[/b]: piccola (gratis, 3 punti gadget in meno), media (2 crediti) o grande (4 crediti, 3 punti in più). Ogni [b]gadget montato[/b] costa 1 credito: in gara puoi usare solo quelli montati. La navetta di serie ha scafo medio, mazzo bilanciato, motori normali, batteria media e tutti i gadget.
 
@@ -1622,9 +1632,22 @@ func _energy_finish() -> void:
 	var parts := []
 	var hooks := game.apply_hooks()
 	for h in hooks:
-		parts.append("[b]%s[/b] aggancia [b]%s[/b] con l'arpione e la tira indietro di %d" % [h["by"].name, h["to"].name, h["n"]])
+		if h.get("anchor", false):
+			parts.append("l'arpione di [b]%s[/b] non smuove [b]%s[/b]: ancora magnetica" % [h["by"].name, h["to"].name])
+		else:
+			parts.append("[b]%s[/b] aggancia [b]%s[/b] con l'arpione e la tira indietro di %d" % [h["by"].name, h["to"].name, h["n"]])
 		if not online.get("catchup", false):
 			board.hook_fx(h["by"].id, h["to"].id, int(h["n"]), true)
+			if h.get("anchor", false):
+				board.popup(board.ship_pos(h["to"].id), "ANCORATA", board.C_BLOCK)
+	for sp in game.apply_siphons():
+		if sp["to"] == null:
+			parts.append("il sifone di [b]%s[/b] non trova nessuno" % sp["by"].name)
+			continue
+		parts.append("[b]%s[/b] ruba %d punt%s gadget a [b]%s[/b] con il sifone" % [sp["by"].name, sp["n"], "o" if int(sp["n"]) == 1 else "i", sp["to"].name])
+		if not online.get("catchup", false):
+			board.hook_fx(sp["to"].id, sp["by"].id, 0, false)
+			board.popup(board.ship_pos(sp["by"].id), "SIFONE +%d" % int(sp["n"]), board.C_GOOD)
 	var me = _viewer()
 	if me != null and not online.get("catchup", false):
 		var tags := []
@@ -3927,13 +3950,27 @@ func _energy_panel() -> VBoxContainer:
 		if not low:
 			grp.add_child(_gadget_img("cat_" + cat.to_lower(), 30 if big else 24))
 		var nk := 0
+		# tanti gadget montati: due per riga
+		var compact: bool = cur.mounted.size() > 10 and not big
+		var holder: Container = grp
+		if compact:
+			var gr := GridContainer.new()
+			gr.columns = 2
+			gr.add_theme_constant_override("h_separation", 10)
+			gr.add_theme_constant_override("v_separation", 4)
+			grp.add_child(gr)
+			holder = gr
 		for k in SledGame.GADGET_ORDER:
 			if String(SledGame.GADGETS[k][1]) != cat or not cur.mounted.has(k):
 				continue
 			nk += 1
-			grp.add_child(_gadget_row(k, left, big))
-			if k == "sn" and SledGame.level(en_draft, "sn") > 0:
+			var gr_row := _gadget_row(k, left, big, compact)
+			gr_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			holder.add_child(gr_row)
+			if k == "sn" and SledGame.level(en_draft, "sn") > 0 and not compact:
 				grp.add_child(_sniper_targets(big))
+		if compact and SledGame.level(en_draft, "sn") > 0 and cat == "Attacchi":
+			grp.add_child(_sniper_targets(big))
 		if nk == 0:
 			var nl := UIKit.label("Nessun gadget montato", 14, UIKit.MUTED)
 			nl.autowrap_mode = TextServer.AUTOWRAP_OFF
@@ -3970,14 +4007,14 @@ func _energy_panel() -> VBoxContainer:
 
 ## Due tasti per gadget: «Cecchino 1» e «Cecchino 2» (il token con il numero dei punti).
 ## Se ne accende al massimo uno; toccando quello acceso si spegne (gadget non usato).
-func _gadget_row(k: String, left: int, big := false) -> HBoxContainer:
+func _gadget_row(k: String, left: int, big := false, compact := false) -> HBoxContainer:
 	var r := HBoxContainer.new()
 	r.add_theme_constant_override("separation", 6)
 	var cur_lv := SledGame.level(en_draft, k)
 	for lv in range(1, SledGame.max_level(k) + 1):
 		var on := lv == cur_lv
 		var b := Button.new()
-		b.custom_minimum_size = Vector2(140, 50 if big else 38)
+		b.custom_minimum_size = Vector2(70 if compact else 140, (40 if big else 32) if compact else (50 if big else 38))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.disabled = not on and lv - cur_lv > left
 		b.tooltip_text = "%s %d" % [SledGame.gadget_name(k), lv]
@@ -3998,7 +4035,7 @@ func _gadget_row(k: String, left: int, big := false) -> HBoxContainer:
 		t.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		t.modulate = Color(1, 1, 1, 1) if on else (Color(0.5, 0.52, 0.58, 0.6) if b.disabled else Color(0.82, 0.85, 0.9, 1))
 		hb.add_child(t)
-		var n := _big(str(lv), 26 if big else 22, UIKit.ENERGY if on else (UIKit.MUTED if b.disabled else UIKit.INK))
+		var n := _big(str(lv), (20 if compact else (26 if big else 22)), UIKit.ENERGY if on else (UIKit.MUTED if b.disabled else UIKit.INK))
 		n.custom_minimum_size = Vector2(26, 0)
 		n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		n.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -4099,7 +4136,14 @@ func _play_gadget_fx(gfx: Array) -> void:
 				await _pause(0.5)
 			"emp":
 				board.emp_fx(int(g["cell"]))
+				if g.has("pid"):
+					board.popup(board.ship_pos(int(g["pid"])), "IMPULSO EMP", board.C_BLOCK)
 				await _pause(0.45)
+			"pop":
+				board.popup(board.ship_pos(int(g["pid"])), String(g["t"]), _pop_col(String(g.get("c", ""))))
+			"sand":
+				board.redraw()
+				board.popup(board.ship_pos(int(g["pid"])), "SCIA DI SABBIA", board.C_GOOD)
 			"hook":
 				pass    # l'arpione si vede già a inizio turno (nel replay sì, all'inizio della corsa)
 			"boost":
@@ -4140,10 +4184,23 @@ func _replay_gfx(g: Dictionary, mines_now: Dictionary) -> Dictionary:
 			board.hook_fx(int(g["pid"]), int(g["to"]), int(g.get("lv", 1)), true)
 		"boost":
 			board.boost_fx(int(g["pid"]), int(g.get("lv", 1)))
+		"emp":
+			board.emp_fx(int(g["cell"]))
+		"pop":
+			board.popup(board.ship_pos(int(g["pid"])), String(g["t"]), _pop_col(String(g.get("c", ""))))
+		"sand":
+			board.popup(board.ship_pos(int(g["pid"])), "SCIA DI SABBIA", board.C_GOOD)
 	if String(g.get("k", "")) in ["mine", "drop"]:
 		board.mine_cells = mines_now.keys()
 		board.redraw()
 	return mines_now
+
+func _pop_col(c: String) -> Color:
+	match c:
+		"good": return board.C_GOOD
+		"block": return board.C_BLOCK
+		"hit": return board.C_HIT
+	return board.C_MISS
 
 # ---------- token grafici dei gadget ----------
 static var _gtex := {}

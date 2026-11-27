@@ -1040,6 +1040,7 @@ func laser_fx(pid: int, res: String) -> void:
 			popup(from, "BERSAGLIO INVISIBILE", C_MISS)
 		"decoy":
 			hologram(to)
+			popup(to, "ESCA OLOGRAFICA", C_BLOCK)
 		_:
 			puff(end, 0.6)
 			spark(end, Color("ffb066"), 0.5)
@@ -1267,6 +1268,10 @@ func missile_fx(cells: Array, res: String, pid: int, defl: Array = []) -> void:
 		"boom":
 			_blast_at(end, 0.7)
 			popup(end, "CME: ESPLOSO", C_BLOCK)
+		"decoy":
+			_blast_at(end, 0.5)
+			hologram(end)
+			popup(end, "ESCA COLPITA", C_BLOCK)
 		"wall":
 			_blast_at(end, 0.7)
 			popup(end, "MANCATO", C_MISS)

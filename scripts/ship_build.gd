@@ -36,11 +36,11 @@ const BATTERIES := [
 const GADGET_COST := 1
 const PRESETS := [
 	{"name": "Di serie", "model": -1, "hull": 1, "eng": 1, "mt": 0, "bat": 1, "g": ["sn", "mi", "ms", "sh", "ra", "cm", "iv", "bo", "ho", "bl"]},
-	{"name": "Predatore", "model": 0, "hull": 0, "eng": 2, "mt": 3, "bat": 1, "g": ["sn", "mi", "ms", "iv", "bo", "ho", "bl"]},
-	{"name": "Fortezza", "model": 4, "hull": 2, "eng": 1, "mt": 0, "bat": 2, "g": ["sh", "cm", "ra", "mi", "sn", "bo"]},
-	{"name": "Sprinter", "model": 2, "hull": 0, "eng": 2, "mt": 2, "bat": 2, "g": ["bo", "ho", "bl", "sh", "cm"]},
-	{"name": "Cecchino", "model": 3, "hull": 1, "eng": 0, "mt": 1, "bat": 2, "g": ["sn", "ms", "mi", "sh", "ra", "iv", "cm"]},
-	{"name": "Ionico", "model": 1, "hull": 1, "eng": 1, "mt": 4, "bat": 1, "g": ["sn", "mi", "ms", "sh", "cm", "iv", "bo", "ho"]},
+	{"name": "Predatore", "model": 0, "hull": 0, "eng": 2, "mt": 3, "bat": 1, "g": ["sn", "mi", "ms", "ho", "bl", "si", "bo"]},
+	{"name": "Fortezza", "model": 4, "hull": 2, "eng": 1, "mt": 0, "bat": 2, "g": ["sh", "cm", "ra", "nb", "an", "ec"]},
+	{"name": "Sprinter", "model": 2, "hull": 0, "eng": 2, "mt": 2, "bat": 2, "g": ["bo", "st", "sa", "sh", "cm"]},
+	{"name": "Cecchino", "model": 3, "hull": 1, "eng": 0, "mt": 1, "bat": 2, "g": ["sn", "ms", "mi", "em", "sc", "ec", "st"]},
+	{"name": "Ionico", "model": 1, "hull": 1, "eng": 1, "mt": 4, "bat": 1, "g": ["sn", "mi", "ms", "sh", "cm", "nb", "bo", "ho"]},
 ]
 
 static func standard() -> Dictionary:

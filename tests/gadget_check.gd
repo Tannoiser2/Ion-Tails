@@ -92,5 +92,72 @@ func _init() -> void:
 	var r3 := g._missile(a, lane, 7, m3)
 	print("CME: ", m3, " ", r3.get("res"), " su ", r3.get("pid"))
 	if r3.get("pid", -1) != cc.id: print("ERRORE CME verso la navetta vicina"); ok = false
+	# --- nuovi gadget
+	for p in g.players:
+		p.cell = -1
+		p.al = {}
+		p.half = false
+		p.dents = 0
+		p.mounted = SledGame.GADGET_ORDER.duplicate()
+	# esca contro il missile
+	a.cell = lane
+	b.cell = g._straight(g._straight(lane))
+	b.al = {"ec": 1}
+	var m4 := []
+	var r4 := g._missile(a, lane, 7, m4)
+	print("esca: ", m4, " ", r4.get("res"))
+	if r4.get("res") != "decoy" or b.half: print("ERRORE esca"); ok = false
+	# ancora contro l'arpione
+	b.al = {"an": 1}
+	a.al = {"ho": 2}
+	var bc0: int = b.cell
+	g.apply_hooks()
+	if b.cell != bc0: print("ERRORE ancora"); ok = false
+	# sifone
+	a.al = {"si": 2}
+	a.energy = 0
+	b.energy = 5
+	var sp := g.apply_siphons()
+	print("sifone: ", a.energy, " ", b.energy)
+	if a.energy != 3 or b.energy != 2: print("ERRORE sifone"); ok = false
+	# EMP: spegne lo scudo di chi è vicino
+	a.al = {"em": 1}
+	b.cell = g._straight(lane)
+	b.al = {"sh": 2, "cm": 1}
+	var o5 := {"path": [lane], "end": lane, "from": lane, "dents": 0, "speed": 3}
+	var m5 := []
+	g._gadgets_after_move(a, o5, m5)
+	print("emp: ", m5, " ", b.al)
+	if b.al.has("sh"): print("ERRORE emp"); ok = false
+	# scia di sabbia
+	a.al = {"sc": 1}
+	var p6 := [g._straight(lane), g._straight(g._straight(lane)), g._straight(g._straight(g._straight(lane)))]
+	b.cell = -1
+	var o6 := {"path": p6, "end": p6[2], "from": lane, "dents": 0, "speed": 3}
+	var f0: int = g.fresh.size()
+	g._gadgets_after_move(a, o6, [])
+	print("scia: ", g.fresh.size() - f0)
+	if g.fresh.size() - f0 != 2: print("ERRORE scia"); ok = false
+	for t6 in p6: g.fresh.erase(t6)
+	g.fresh.erase(lane)
+	# nanobot
+	a.cell = lane
+	a.dents = 2
+	a.al = {"nb": 2}
+	var o7 := {"path": [], "end": lane, "from": lane, "dents": 0, "corner_dents": 0, "speed": 0, "crash": "", "sap": []}
+	g.after_move(a, o7)
+	print("nanobot: danni ", a.dents, " mezzo ", a.half)
+	if a.dents != 1: print("ERRORE nanobot"); ok = false
+	# salto: una navetta subito davanti non ferma
+	a.al = {"sa": 1}
+	a.dents = 0
+	b.cell = g._straight(lane)
+	var outs := g.compute_outs(a, {"L": 2, "R": 2, "B": 1})
+	var far := false
+	for oo in outs:
+		if (oo["path"] as Array).has(b.cell) and int(oo["end"]) != b.cell:
+			far = true
+	print("salto: scavalca ", far)
+	if not far: print("ERRORE salto"); ok = false
 	print("STTEST gadget ", "OK" if ok else "ERRORI")
 	quit()

@@ -33,6 +33,7 @@ func _init() -> void:
 				for k in a:
 					tot[k] = tot.get(k, 0) + 1
 			game.apply_hooks()
+			game.apply_siphons()
 			for p in game.race_order():
 				if not game.racing(p): continue
 				if p.hand.is_empty():

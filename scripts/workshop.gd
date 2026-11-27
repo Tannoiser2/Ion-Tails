@@ -117,17 +117,41 @@ func _build() -> void:
 	gh.add_child(ghl)
 	rc.add_child(gh)
 	var g: Array = cfg.get("g", [])
-	for cat in SledGame.CATEGORIES:
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 6)
+	# divisi per tipo: attacchi, difese, movimento (ognuno nel suo riquadro colorato)
+	var cats := VBoxContainer.new()
+	cats.add_theme_constant_override("separation", 8)
+	for ci in SledGame.CATEGORIES.size():
+		var cat: String = SledGame.CATEGORIES[ci]
+		var gcol: Color = [Color("ff6a5a"), Color("4fb8ff"), Color("6fe3c8")][ci]
+		var pc := PanelContainer.new()
+		pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pc.add_theme_stylebox_override("panel", UIKit.box(Color(gcol, 0.06), 10, Color(gcol, 0.45), 1, 6))
+		var cv := VBoxContainer.new()
+		cv.add_theme_constant_override("separation", 4)
+		pc.add_child(cv)
+		var hb: BoxContainer = HBoxContainer.new() if land else VBoxContainer.new()
+		hb.add_theme_constant_override("separation", 8 if land else 4)
+		var ct: TextureRect = main._gadget_img("cat_" + cat.to_lower(), 24)
+		ct.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		hb.add_child(ct)
+		var grid := GridContainer.new()
+		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grid.columns = 4 if land else 2
+		grid.add_theme_constant_override("h_separation", 6)
+		grid.add_theme_constant_override("v_separation", 4)
 		for k in SledGame.GADGET_ORDER:
 			if String(SledGame.GADGETS[k][1]) != cat:
 				continue
-			row.add_child(_gadget_toggle(k, g.has(k), left))
-		rc.add_child(row)
+			grid.add_child(_gadget_toggle(k, g.has(k), left))
+		hb.add_child(grid)
+		cv.add_child(hb)
+		cats.add_child(pc)
+	rc.add_child(cats)
 	# --- modelli pronti e navette salvate
-	add_child(_presets_row())
-	add_child(_saved_box())
+	# in orizzontale modelli pronti e navette salvate stanno sotto l'anteprima (finestra più bassa)
+	var holder: Control = lc if land else self
+	holder.add_child(_presets_row())
+	holder.add_child(_saved_box())
 	if msg != "":
 		var ml := UIKit.label(msg, 16, UIKit.HEAD)
 		add_child(ml)
@@ -224,7 +248,7 @@ func _small_btn(text: String, on: bool, col := Color(0, 0, 0, 0)) -> Button:
 func _gadget_toggle(k: String, on: bool, left: int) -> Button:
 	var b := Button.new()
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.custom_minimum_size = Vector2(110, 44)
+	b.custom_minimum_size = Vector2(120, 34 if land else 48)
 	b.tooltip_text = "%s: %s" % [SledGame.gadget_name(k), SledGame.GADGETS[k][2]]
 	b.disabled = not on and left < ShipBuild.GADGET_COST
 	_style_choice(b, on)
@@ -280,7 +304,7 @@ func _presets_row() -> Control:
 	row.add_theme_constant_override("v_separation", 6)
 	for p in ShipBuild.PRESETS:
 		var b := _small_btn(String(p["name"]), false)
-		b.custom_minimum_size = Vector2(150, 40)
+		b.custom_minimum_size = Vector2(112 if land else 150, 38)
 		b.size_flags_horizontal = 0
 		var pc: Dictionary = p
 		b.pressed.connect(func():
@@ -320,7 +344,7 @@ func _saved_box() -> Control:
 		nl.custom_minimum_size = Vector2(150, 0)
 		nl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		r.add_child(nl)
-		if land:
+		if false:
 			var sl := UIKit.label(ShipBuild.summary(c), 13, UIKit.MUTED)
 			sl.autowrap_mode = TextServer.AUTOWRAP_OFF
 			sl.clip_text = true

@@ -89,10 +89,18 @@ const GADGETS := {
 	"bo": ["Postbruciatore", "Movimento", "+1 (1 punto) o +2 (2 punti) alla velocità di questa mossa; conta anche per i limiti delle curve"],
 	"ho": ["Arpione", "Movimento", "appena tutti hanno scelto, tira subito indietro di 1 casella (1 punto) o 2 (2 punti) la navetta più vicina davanti a te (fino a 6 passi)"],
 	"bl": ["Blast ionico", "Movimento", "a fine mossa, un'onda dalla tua casella spinge di una corsia, lontano da te, tutte le navette entro 1 casella (1 punto) o 2 (2 punti); chi sbatte contro il bordo prende mezzo danno"],
+	"em": ["Impulso EMP", "Attacchi", "a fine mossa spegne per il resto del turno scudo, CME, radar, esca e ancora delle navette entro 1 casella (1 punto) o 2 (2 punti)"],
+	"sc": ["Scia di sabbia", "Attacchi", "le ultime 2 caselle (1 punto) o 4 (2 punti) che ti lasci dietro diventano sabbia: costa 2 punti di velocità entrarci"],
+	"si": ["Sifone ionico", "Attacchi", "appena tutti hanno scelto, ruba 1 punto gadget (1 punto) o 3 (2 punti) alla navetta più vicina, davanti o dietro, entro 6 passi"],
+	"ec": ["Esca olografica", "Difese", "un tuo doppio olografico: il primo missile che ti arriva colpisce l'esca (1 punto); con 2 punti anche i cecchini mirano all'esca"],
+	"nb": ["Nanobot", "Difese", "a fine mossa riparano mezzo danno (1 punto) o un danno intero (2 punti)"],
+	"an": ["Ancora magnetica", "Difese", "per questo turno arpione e blast ionico non ti spostano (1 punto)"],
+	"st": ["Stabilizzatori", "Movimento", "+1 (1 punto) o +2 (2 punti) al limite delle curve in questa mossa"],
+	"sa": ["Salto gravitazionale", "Movimento", "in questa mossa scavalchi le altre navette (1 punto); con 2 punti salti anche sopra le mine"],
 }
-const GADGET_ORDER := ["sn", "mi", "ms", "sh", "ra", "cm", "iv", "bo", "ho", "bl"]
+const GADGET_ORDER := ["sn", "mi", "ms", "em", "sc", "si", "sh", "ra", "cm", "iv", "ec", "nb", "an", "bo", "ho", "bl", "st", "sa"]
 ## Livello massimo diverso da MAX_LEVEL
-const LEVEL_CAP := {}
+const LEVEL_CAP := {"an": 1}
 const CATEGORIES := ["Attacchi", "Difese", "Movimento"]
 var mines := {}            # casella -> id della navetta che l'ha sganciata
 var smoke := {}            # (non più usato: resta per compatibilità con l'interfaccia)
@@ -354,8 +362,13 @@ func compute_outs(p: Player, m: Dictionary, all_paths := false) -> Array:
 		if q != p and not q.wrecked and q.cell >= 0 and q.finish_round == 0:
 			occ[q.cell] = true
 	var res := []
+	# salto gravitazionale: le altre navette non fermano (ma non si arriva su una casella occupata)
+	var occ_end := {}
+	if level(p.al, "sa") > 0:
+		occ_end = occ
+		occ = {}
 	var up0: bool = course.slope_of(p.cell) == "up"
-	_curve_mod = p.curve_mod
+	_curve_mod = p.curve_mod + level(p.al, "st")
 	_dfs(p.cell, speed, k, dir, speed, occ, [], 0, res, 0, [], up0, "")
 	# motori stabili: si può anche derivare di una corsia in meno
 	if p.motor == 1 and k > 0:
@@ -363,6 +376,15 @@ func compute_outs(p: Player, m: Dictionary, all_paths := false) -> Array:
 	if drift == 0 and m["L"] == m["R"] and p.moves > 0:
 		var b := rank_of(p)
 		_dfs(p.cell, speed + b, 0, 0, speed + b, occ, [], 0, res, b, [], up0, "")
+	if not occ_end.is_empty():
+		var keep := res.filter(func(r): return not occ_end.has(int(r["end"])))
+		if keep.is_empty():
+			# nessun arrivo libero scavalcando: si muove come al solito
+			res = []
+			_dfs(p.cell, speed, k, dir, speed, occ_end, [], 0, res, 0, [], up0, "")
+			occ = occ_end
+		else:
+			res = keep
 	for r in res:
 		r["from"] = p.cell
 		_post_move(r, occ)
@@ -533,7 +555,7 @@ func resolve_simultaneous(progs: Dictionary) -> Array:
 		var cd := 0
 		var prev: int = p.cell
 		for t in path:
-			cd += course.limit_dents(cell(prev)["piece"], cell(t)["piece"], total - p.curve_mod) + course.leap_dents(prev, t, total)
+			cd += course.limit_dents(cell(prev)["piece"], cell(t)["piece"], total - p.curve_mod - level(p.al, "st")) + course.leap_dents(prev, t, total)
 			prev = t
 		o_use["end"] = p.cell if path.is_empty() else path[path.size() - 1]
 		o_use["from"] = p.cell
@@ -712,6 +734,15 @@ func after_move(p: Player, o: Dictionary) -> bool:
 	for i in int(o.get("ghalf", 0)):
 		if not p.wrecked:
 			add_half_dent(p)
+	var nb := level(p.al, "nb") if energy_on else 0
+	if nb > 0 and not p.wrecked and (p.dents > 0 or p.half):
+		var units: int = p.dents * 2 + (1 if p.half else 0) - nb
+		units = max(units, 0)
+		p.dents = units / 2
+		p.half = units % 2 == 1
+		msgs.append("i nanobot riparano %s" % ("mezzo danno" if nb == 1 else "un danno"))
+		if o.has("gfx"):
+			(o["gfx"] as Array).append({"k": "pop", "pid": p.id, "t": "NANOBOT: RIPARATA", "c": "good"})
 	if p.wrecked:
 		msgs.append("la navetta va in pezzi!")
 	elif is_finished(p) and p.finish_round == 0:
@@ -1099,7 +1130,11 @@ func apply_hooks() -> Array:
 		if lv <= 0 or not racing(p):
 			continue
 		var t := hook_target(p)
-		if t != null:
+		if t != null and level(t.al, "an") > 0:
+			p.al["hot"] = t.id
+			p.al["hon"] = 0
+			out.append({"by": p, "to": t, "lv": lv, "n": 0, "anchor": true})
+		elif t != null:
 			var occ := {}
 			for q in players:
 				if not q.wrecked and q.cell >= 0:
@@ -1116,6 +1151,32 @@ func apply_hooks() -> Array:
 			p.al["hot"] = t.id
 			p.al["hon"] = n
 			out.append({"by": p, "to": t, "lv": lv, "n": n})
+	return out
+
+## Sifone ionico: chi l'ha scelto ruba subito punti gadget alla navetta più vicina.
+func apply_siphons() -> Array:
+	var out := []
+	for p in players:
+		var lv := level(p.al, "si")
+		if lv <= 0 or not racing(p) or p.cell < 0:
+			continue
+		var my := int(cell(p.cell)["togo"])
+		var best: Player = null
+		var bd := 999
+		for q in _on_track(p):
+			if q.finish_round != 0 or invisible(q):
+				continue
+			var d: int = abs(my - int(cell(q.cell)["togo"]))
+			if d <= HOOK_RANGE and d < bd and q.energy > 0:
+				bd = d
+				best = q
+		if best == null:
+			out.append({"by": p, "to": null, "n": 0})
+			continue
+		var n: int = min(best.energy, 1 if lv == 1 else 3)
+		best.energy -= n
+		p.energy += n
+		out.append({"by": p, "to": best, "n": n})
 	return out
 
 ## Altre navette in pista (non distrutte).
@@ -1227,6 +1288,10 @@ func _missile(p: Player, from_cell: int, range_n: int, msgs: Array) -> Dictionar
 		left -= 1
 		while occ.has(c):
 			var q: Player = occ[c]
+			if level(q.al, "ec") > 0 and not q.al.has("ec_used"):
+				q.al["ec_used"] = true
+				msgs.append("il missile colpisce l'esca olografica di %s" % q.name)
+				return {"cells": cells, "res": "decoy", "pid": q.id, "defl": defl}
 			var cm := level(q.al, "cm")
 			if cm >= 2:
 				msgs.append("le CME di %s fanno esplodere il missile" % q.name)
@@ -1342,6 +1407,8 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 	# mine sul percorso (tranne le proprie)
 	var boom := []
 	for t in path:
+		if level(p.al, "sa") >= 2 and t != end:
+			continue    # salto gravitazionale da 2: passa sopra le mine
 		if mines.has(t) and int(mines[t]) != p.id:
 			boom.append(t)
 			mines.erase(t)
@@ -1379,6 +1446,10 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 			msgs.append("il cecchino di %s non la trova: è invisibile" % q.name)
 			gfx.append({"k": "laser", "by": q.id, "pid": p.id, "res": "invisible"})
 			continue
+		if level(p.al, "ec") >= 2:
+			msgs.append("il cecchino di %s spara all'esca olografica" % q.name)
+			gfx.append({"k": "laser", "by": q.id, "pid": p.id, "res": "decoy"})
+			continue
 		var ch := sniper_chance(level(q.al, "sn"), spd, int(ei[0]), level(p.al, "sh"))
 		var hit := rng.randf() < ch
 		var pct := int(round(ch * 100.0))
@@ -1412,6 +1483,11 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 		for q in players:
 			if not q.wrecked and q.cell >= 0:
 				occ[q.cell] = true
+		for t: Player in hit.duplicate():
+			if level(t.al, "an") > 0:
+				msgs.append("l'ancora magnetica tiene ferma %s" % t.name)
+				gfx.append({"k": "pop", "pid": t.id, "t": "ANCORATA", "c": "block"})
+				hit.erase(t)
 		for t: Player in hit:
 			var side := _away_side(end, t)
 			var n := int(cell(t.cell).get(side, -1))
@@ -1434,6 +1510,44 @@ func _gadgets_after_move(p: Player, o: Dictionary, msgs: Array) -> void:
 			else:
 				msgs.append("il blast ionico non riesce a spostare %s" % t.name)
 			gfx.append({"k": "blast", "pid": p.id, "to": t.id, "from": from_c, "cell": t.cell, "crash": crashed, "n": moved})
+	# impulso EMP: spegne le difese delle navette vicine
+	var em := level(p.al, "em")
+	if em > 0:
+		var near2 := _near_cells(end, em)
+		var off := []
+		for q in _on_track(p):
+			if q.finish_round == 0 and near2.has(q.cell):
+				var had := false
+				for k in ["sh", "cm", "ra", "ec", "an"]:
+					if q.al.has(k):
+						q.al.erase(k)
+						had = true
+				if had:
+					off.append(q.name)
+		gfx.append({"k": "emp", "cell": end, "pid": p.id})
+		msgs.append("l'impulso EMP %s" % ("spegne le difese di " + ", ".join(off) if not off.is_empty() else "non trova difese da spegnere"))
+	# scia di sabbia: le ultime caselle lasciate dietro
+	var sc := level(p.al, "sc")
+	if sc > 0 and not path.is_empty():
+		var trail := []
+		for i in range(path.size() - 2, -1, -1):
+			trail.append(int(path[i]))
+		if from >= 0:
+			trail.append(from)
+		var nsand := 0
+		for t in trail:
+			if nsand >= 2 * sc:
+				break
+			if not fresh.has(t):
+				fresh[t] = true
+				nsand += 1
+		if nsand > 0:
+			msgs.append("lascia una scia di sabbia (%d caselle)" % nsand)
+			gfx.append({"k": "sand", "pid": p.id})
+	if level(p.al, "st") > 0 and int(o.get("corner_dents", 0)) == 0:
+		gfx.append({"k": "pop", "pid": p.id, "t": "STABILIZZATORI +%d" % level(p.al, "st"), "c": "good"})
+	if level(p.al, "sa") > 0 and not path.is_empty():
+		gfx.append({"k": "pop", "pid": p.id, "t": "SALTO GRAVITAZIONALE", "c": "good"})
 	if halves > 0:
 		o["ghalf"] = halves
 	o["gfx"] = gfx
@@ -1561,6 +1675,48 @@ func ai_alloc(p: Player) -> Dictionary:
 	var nl := course.next_limit(float(c0["s"]))
 	if nl.is_empty() or (float(nl["s"]) - float(c0["s"])) / course.cell_len > 10.0:
 		opts.append(["bo", 1.2 + 0.15 * rank, 2 if rank >= 2 else 1, -1])
+	# STABILIZZATORI: curva vicina (al posto del postbruciatore)
+	if not nl.is_empty():
+		var dcur: float = (float(nl["s"]) - float(c0["s"])) / course.cell_len
+		if dcur <= 7.0:
+			opts.append(["st", 1.3 + 0.2 * rank, 2 if dcur <= 4.0 else 1, -1])
+	# ESCA: come le CME, contro missili e (con 2) cecchini; meglio se in testa
+	if cm_v > 0.0 or rank == 0:
+		opts.append(["ec", 1.0 + (0.4 if rank == 0 else 0.0), 2 if rank == 0 and threat >= 3 else 1, -1])
+	# NANOBOT: già danneggiata
+	if p.dents > 0 or p.half:
+		opts.append(["nb", 0.9 + 0.35 * p.dents, 2 if p.dents >= 2 else 1, -1])
+	# ANCORA: qualcuno dietro vicino che può agganciarmi o spingermi
+	for x in behind:
+		if int(x[1]) <= 4 and (x[0] as Player).energy >= 1:
+			opts.append(["an", 1.0, 1, -1])
+			break
+	# EMP: navette vicine con punti (le loro difese probabili)
+	var near_any := 0
+	for x in vis_ahead + behind:
+		if int(x[1]) <= 2:
+			near_any += 1
+	if near_any > 0:
+		opts.append(["em", 0.6 + 0.3 * near_any, 2 if near_any > 1 else 1, -1])
+	# SCIA DI SABBIA: qualcuno subito dietro
+	var close_behind := 0
+	for x in behind:
+		if int(x[1]) <= 5:
+			close_behind += 1
+	if close_behind > 0:
+		opts.append(["sc", 0.8 + 0.3 * close_behind, 2 if close_behind > 1 else 1, -1])
+	# SIFONE: qualcuno vicino con molti punti
+	for q in _on_track(p):
+		if q.finish_round == 0 and q.energy >= 3 and abs(my_togo - int(cell(q.cell)["togo"])) <= HOOK_RANGE:
+			opts.append(["si", 1.0 + 0.05 * q.energy, 2 if q.energy >= 5 else 1, -1])
+			break
+	# SALTO: traffico davanti a breve distanza
+	var blockers := 0
+	for x in ahead:
+		if int(x[1]) <= 4:
+			blockers += 1
+	if blockers >= 2:
+		opts.append(["sa", 0.9 + 0.2 * blockers, 1, -1])
 	# scelta: i più utili prima, con un po' di imprevedibilità
 	for o in opts:
 		o[1] = float(o[1]) * randf_range(0.75, 1.25)

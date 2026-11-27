@@ -36,6 +36,8 @@ func _run() -> void:
 	main.setup_ai = [false, true, true, true, true]
 	if OS.get_environment("ST_SHIP0") != "":
 		var c := ShipBuild.sanitize(ShipBuild.PRESETS[int(OS.get_environment("ST_SHIP0"))])
+		if OS.get_environment("ST_ALLG") == "1":
+			c = {"name": "Tutto montato", "hull": 0, "eng": 0, "mt": 0, "bat": 0, "g": ["sn", "mi", "ms", "em", "sc", "si", "sh", "ra", "cm", "iv", "ec", "nb", "an", "bo", "ho"]}
 		c["name"] = "Falco del deserto"
 		main.setup_ship[0] = c
 	main.start_game()
