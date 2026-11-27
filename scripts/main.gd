@@ -1514,12 +1514,14 @@ func _energy_confirm() -> void:
 		return
 	_apply_act({"k": "en", "a": a})
 
+const STEP_PULL := 0.35
 ## Tutti hanno scelto: l'arpione agisce subito, poi si corre.
 func _energy_finish() -> void:
 	cur = null
 	_in_energy = false
 	var parts := []
-	for h in game.apply_hooks():
+	var hooks := game.apply_hooks()
+	for h in hooks:
 		parts.append("[b]%s[/b] aggancia [b]%s[/b] con l'arpione e la tira indietro di %d" % [h["by"].name, h["to"].name, h["n"]])
 		if not online.get("catchup", false):
 			board.hook_fx(h["by"].id, h["to"].id, int(h["n"]), true)
@@ -1541,6 +1543,22 @@ func _energy_finish() -> void:
 	board.redraw()
 	game.log_text = "Gadget scelti in segreto: si parte!" + (" " + ";  ".join(parts) if not parts.is_empty() else "")
 	board.redraw()
+	if not hooks.is_empty() and not online.get("catchup", false):
+		# si guarda l'arpione partire, agganciare e tirare indietro prima che si corra
+		var mx := 1
+		for h in hooks:
+			mx = max(mx, int(h["n"]))
+		_refresh()
+		# inquadra il primo arpione
+		var h0: Dictionary = hooks[0]
+		var pa = board.ship_pos(h0["by"].id)
+		var pb = board.ship_pos(h0["to"].id)
+		board.frame([Vector2(pa.x, pa.z) / board.S, Vector2(pb.x, pb.z) / board.S, game.cell(h0["to"].cell)["pos"]], 5.5, true)
+		board.yaw_goal = board.yaw_of(board._heading_of(h0["by"].cell))
+		var my := race_id
+		await _pause(0.9 + 0.45 * mx + STEP_PULL * mx)
+		if my != race_id:
+			return
 	_begin_moves()
 
 # ---------- online: scelte in parallelo ----------

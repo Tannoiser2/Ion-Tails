@@ -758,6 +758,8 @@ func _process(delta: float) -> void:
 				(t["ring"] as MeshInstance3D).visible = false
 				continue
 			var goal := to3(course.cells[p.cell]["pos"], 0.004)
+			if _hold.has(p.id):
+				goal = node.position
 			var to_goal := goal - node.position
 			var dd := to_goal.length()
 			var moving := dd > 0.02
@@ -1132,30 +1134,79 @@ func emp_fx(cell_id: int) -> void:
 
 ## Arpione: cavo luminoso fra due navette per un attimo.
 var _blast_wave := {}
+var _hold := {}          # navette ferme in attesa dell'arpione
 
 func hook_fx(pid: int, to_pid: int, lv := 0, show_n := false) -> void:
-	var a := ship_pos(pid)
-	var b := ship_pos(to_pid)
-	var beam := MeshInstance3D.new()
-	beam.mesh = TeamModel.cyl(0.008, 0.008, 1.0, 6)
-	var bm := TeamModel.glow(Color("ffd36b"), 1.4, 0.9)
-	beam.material_override = bm
-	var d3 := b - a
-	if d3.length() < 0.01:
+	if not _teams.has(pid) or not _teams.has(to_pid):
 		return
-	var up := d3.normalized()
-	var x := up.cross(Vector3.FORWARD)
-	if x.length() < 0.01:
-		x = Vector3.RIGHT
-	x = x.normalized()
-	beam.basis = Basis(x, up, x.cross(up).normalized()) * Basis.from_scale(Vector3(1, d3.length(), 1))
-	beam.position = (a + b) * 0.5
-	_fx.add_child(beam)
+	# la navetta agganciata resta ferma finché l'arpione non la raggiunge
+	if show_n and lv > 0:
+		_hold[to_pid] = true
+	var cable := MeshInstance3D.new()
+	cable.mesh = TeamModel.cyl(0.018, 0.018, 1.0, 6)
+	var cm := TeamModel.glow(Color("ffc24a"), 1.3, 0.95)
+	cable.material_override = cm
+	cable.visible = false
+	_fx.add_child(cable)
+	var head := Node3D.new()
+	var tip := MeshInstance3D.new()
+	tip.mesh = TeamModel.cyl(0.0, 0.05, 0.14, 8)
+	tip.material_override = TeamModel.metal(Color("d9dee6"), 0.3)
+	tip.rotation.x = -PI / 2
+	head.add_child(tip)
+	for k in 3:
+		var prong := MeshInstance3D.new()
+		prong.mesh = TeamModel.cyl(0.008, 0.008, 0.1, 4)
+		prong.material_override = TeamModel.glow(Color("ffc24a"), 1.2)
+		var ang := TAU * k / 3.0
+		prong.position = Vector3(cos(ang) * 0.04, sin(ang) * 0.04, 0.05)
+		prong.rotation = Vector3(0.6 * sin(ang), -0.6 * cos(ang), 0)
+		head.add_child(prong)
+	_fx.add_child(head)
+	var lay := func(p0: Vector3, p1: Vector3) -> void:
+		var d3 := p1 - p0
+		if d3.length() < 0.01:
+			cable.visible = false
+			return
+		cable.visible = true
+		var up := d3.normalized()
+		var x := up.cross(Vector3.FORWARD)
+		if x.length() < 0.01:
+			x = Vector3.RIGHT
+		x = x.normalized()
+		cable.basis = Basis(x, up, x.cross(up).normalized()) * Basis.from_scale(Vector3(1, d3.length(), 1))
+		cable.position = (p0 + p1) * 0.5
+	# 1. l'arpione parte e vola verso l'avversario
+	var fly := func(u: float) -> void:
+		var a := ship_pos(pid) + Vector3(0, 0.05, 0)
+		var b := ship_pos(to_pid)
+		var arc := Vector3(0, sin(u * PI) * 0.25, 0)
+		var h := a.lerp(b, u) + arc
+		head.position = h
+		var look := b - a
+		if look.length() > 0.01:
+			head.look_at(h + look, Vector3.UP)
+		lay.call(a, h)
 	var tw := create_tween()
-	tw.tween_property(bm, "albedo_color:a", 0.0, 0.7).set_delay(0.3)
-	tw.tween_callback(beam.queue_free)
-	if show_n or lv > 0:
-		popup(b, "ARPIONE: INDIETRO DI %d" % lv if lv > 0 else "ARPIONE: BLOCCATO", C_GOOD if lv > 0 else C_MISS)
+	tw.tween_method(fly, 0.0, 1.0, 0.55)
+	# 2. aggancia: scintille e la navetta viene tirata indietro
+	tw.tween_callback(func() -> void:
+		spark(ship_pos(to_pid), Color("ffc24a"), 0.7)
+		if _teams.has(to_pid):
+			(_teams[to_pid]["node"] as TeamModel).shake(0.5)
+		_hold.erase(to_pid)
+		if show_n or lv > 0:
+			popup(ship_pos(to_pid), "ARPIONE: INDIETRO DI %d" % lv if lv > 0 else "ARPIONE: BLOCCATO", C_GOOD if lv > 0 else C_MISS))
+	var pull := func(_u: float) -> void:
+		var a := ship_pos(pid) + Vector3(0, 0.05, 0)
+		var b := ship_pos(to_pid)
+		head.position = b
+		lay.call(a, b)
+	tw.tween_method(pull, 0.0, 1.0, 0.35 + 0.45 * lv)
+	# 3. sgancia e il cavo si spegne
+	tw.tween_callback(head.queue_free)
+	tw.tween_property(cm, "albedo_color:a", 0.0, 0.3)
+	tw.tween_callback(cable.queue_free)
 
 ## Postbruciatore: fiammata dai motori.
 func boost_fx(pid: int, lv := 1) -> void:

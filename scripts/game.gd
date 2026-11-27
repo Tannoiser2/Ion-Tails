@@ -1069,7 +1069,7 @@ func _on_track(p: Player) -> Array:
 	return out
 
 ## La navetta più vicina davanti (in passi dal traguardo), entro range passi.
-func _ahead(p: Player, from_cell: int, rng_max: int) -> Player:
+func _ahead(p: Player, from_cell: int, rng_max: int, min_d := 0) -> Player:
 	if from_cell < 0:
 		return null
 	var my_togo := int(cell(from_cell)["togo"])
@@ -1079,7 +1079,7 @@ func _ahead(p: Player, from_cell: int, rng_max: int) -> Player:
 		if q.finish_round != 0 or invisible(q):
 			continue
 		var d: int = my_togo - int(cell(q.cell)["togo"])
-		if d >= 0 and d <= rng_max and d < bd and q.cell != from_cell:
+		if d >= min_d and d <= rng_max and d < bd and q.cell != from_cell:
 			bd = d
 			best = q
 	return best
@@ -1087,7 +1087,7 @@ func _ahead(p: Player, from_cell: int, rng_max: int) -> Player:
 const HOOK_RANGE := 6
 const RADAR_RANGE := 12
 func hook_target(p: Player) -> Player:
-	return _ahead(p, p.cell, HOOK_RANGE)
+	return _ahead(p, p.cell, HOOK_RANGE, 1)
 
 ## Velocità in più (o in meno) per la mossa di p: postbruciatore e arpione subito.
 func speed_extra(p: Player) -> int:
