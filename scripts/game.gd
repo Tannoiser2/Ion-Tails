@@ -42,6 +42,7 @@ class Player:
 	var hand_max := 5          # carte in mano (danni compresi)
 	var curve_mod := 0         # modifica al limite delle curve
 	var mounted: Array = []    # gadget montati
+	var motor := 0             # tipo di motori (ShipBuild.MOTOR_TYPES)
 
 var course: Course
 var players: Array = []
@@ -155,6 +156,7 @@ func apply_ship(p: Player, cfg) -> void:
 	p.hand_max = ShipBuild.hand_max(c)
 	p.curve_mod = ShipBuild.curve_mod(c)
 	p.mounted = (c.get("g", []) as Array).duplicate()
+	p.motor = ShipBuild.motor(c)
 
 func make_deck(counts: Array = [4, 4, 4, 4, 4]) -> Array:
 	var d := []
@@ -168,7 +170,11 @@ func cell(id: int) -> Dictionary:
 	return course.cells[id]
 
 func hand_size(p: Player) -> int:
-	return p.hand.size() + p.dents
+	return p.hand.size() + dent_cards(p)
+
+## Carte di danno che occupano posto in mano: lo scafo pesante ne regge una senza perdere carte.
+func dent_cards(p: Player) -> int:
+	return max(0, p.dents - max(0, p.max_dents - 4))
 
 ## Troppe carte in mano (danni compresi): bisogna scartare.
 func over_hand(p: Player) -> int:
@@ -261,8 +267,14 @@ func mat_after(p: Player, pend: Array) -> Dictionary:
 	for x in pend:
 		m[x["slot"]] = x["v"]
 	var xs := speed_extra(p)
+	match p.motor:
+		3:  # potenti: spinta in più con i motori pari
+			if int(m["L"]) == int(m["R"]):
+				xs += 1
 	if xs != 0:
 		m["X"] = xs
+	if p.motor == 3 and int(m["L"]) != int(m["R"]):
+		m["DR"] = -1  # potenti: con i motori diversi la deriva cresce
 	return m
 
 func commit_play(p: Player, pend: Array) -> void:
@@ -320,6 +332,8 @@ func effective_speed(cell_id: int, m: Dictionary) -> int:
 const WIND_PUSH := 1
 func effective_drift(cell_id: int, m: Dictionary) -> int:
 	var d: int = m["R"] - m["L"]
+	if m.has("DR") and d != 0:
+		d = signi(d) * max(0, abs(d) - int(m["DR"]))
 	if cell_id >= 0:
 		d += course.wind_of(cell_id) * WIND_PUSH
 	return d
@@ -328,7 +342,7 @@ func compute_outs(p: Player, m: Dictionary, all_paths := false) -> Array:
 	var base: int = max(base_speed(m), 0)
 	var speed: int = effective_speed(p.cell, m)
 	var drift: int = effective_drift(p.cell, m)
-	var wind_d: int = drift - (m["R"] - m["L"])
+	var wind_d: int = drift - effective_drift(-1, m)
 	var slope_delta: int = speed - base
 	if speed <= 0:
 		return [{"path": [], "end": p.cell, "dents": 0, "corner_dents": 0, "crash": "", "bonus": false, "bonus_n": 0, "speed": 0, "sap": []}]
@@ -343,6 +357,9 @@ func compute_outs(p: Player, m: Dictionary, all_paths := false) -> Array:
 	var up0: bool = course.slope_of(p.cell) == "up"
 	_curve_mod = p.curve_mod
 	_dfs(p.cell, speed, k, dir, speed, occ, [], 0, res, 0, [], up0, "")
+	# motori stabili: si può anche derivare di una corsia in meno
+	if p.motor == 1 and k > 0:
+		_dfs(p.cell, speed, k - 1, dir, speed, occ, [], 0, res, 0, [], up0, "")
 	if drift == 0 and m["L"] == m["R"] and p.moves > 0:
 		var b := rank_of(p)
 		_dfs(p.cell, speed + b, 0, 0, speed + b, occ, [], 0, res, b, [], up0, "")
@@ -636,8 +653,15 @@ func after_move(p: Player, o: Dictionary) -> bool:
 	p.stalls = p.stalls + 1 if (o["path"] as Array).is_empty() else 0
 	var msgs := []
 	var corner_only: int = int(o["corner_dents"]) - _leap_part(o)
+	var agile_half := false
 	if corner_only > 0:
-		msgs.append("curva presa troppo forte (+%d)" % corner_only)
+		if p.motor == 2:
+			# motori agili: il primo danno della curva è solo mezzo
+			agile_half = true
+			o["dents"] = int(o["dents"]) - 1
+			msgs.append("curva presa troppo forte (+%s, motori agili)" % ("½" if corner_only == 1 else "%d½" % (corner_only - 1)))
+		else:
+			msgs.append("curva presa troppo forte (+%d)" % corner_only)
 	if _leap_part(o) > 0:
 		msgs.append("salto troppo lento (+%d)" % _leap_part(o))
 	var in_crev: bool = course.crevasse.has(int(o["end"]))
@@ -682,6 +706,8 @@ func after_move(p: Player, o: Dictionary) -> bool:
 	if o["dents"] > 0:
 		add_dent(p, o["dents"])
 	if o.get("half", false) and not p.wrecked:
+		add_half_dent(p)
+	if agile_half and not p.wrecked:
 		add_half_dent(p)
 	for i in int(o.get("ghalf", 0)):
 		if not p.wrecked:
@@ -977,7 +1003,7 @@ func ai_discard(p: Player) -> void:
 func ai_discard_values(p: Player) -> Array:
 	var hand: Array = p.hand.duplicate()
 	var out := []
-	while hand.size() + p.dents > p.hand_max and not hand.is_empty():
+	while hand.size() + dent_cards(p) > p.hand_max and not hand.is_empty():
 		var counts := {}
 		for v in hand:
 			counts[v] = counts.get(v, 0) + 1
@@ -1002,6 +1028,9 @@ func energy_round_start() -> void:
 	smoke = {}
 	for p in players:
 		p.al = {}
+		# motori ionici: un punto gadget in più ogni 3 turni
+		if p.motor == 4 and round_n > 1 and round_n % 2 == 1 and racing(p):
+			p.energy += 1
 
 static func gadget_name(k: String) -> String:
 	return String(GADGETS[k][0])

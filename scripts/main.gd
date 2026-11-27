@@ -1241,7 +1241,7 @@ func show_help(force_fan := false) -> void:
 [b]Arpione.[/b] Appena tutti hanno scelto i gadget, la navetta più vicina davanti a te (fino a %d passi) viene tirata subito indietro di 1 casella (1 punto) o 2 (2 punti), se dietro di lei c'è posto.
 [b]Blast ionico.[/b] A fine mossa parte un'onda dalla tua casella: tutte le navette entro 1 casella (1 punto) o 2 (2 punti), davanti, dietro o di lato, vengono spinte di una corsia lontano da te (se sono nella tua corsia, verso il bordo più vicino). Chi sbatte contro il bordo prende mezzo danno; se la casella accanto è occupata resta dov'è.""" % [int(SledGame.BUDGET_DIV), SledGame.HOOK_RANGE]))
 	c1.add_child(UIKit.heading("Officina"))
-	c1.add_child(_rule_text("""Dal menu, «Officina»: costruisci la tua navetta con [b]%d crediti[/b] e dalle un nome. [b]Scafo[/b]: leggero (gratis, regge 3 danni), medio (2 crediti, 4 danni) o pesante (3 crediti, 5 danni). [b]Motori[/b], cioè il tuo mazzo di 20 carte: economici (gratis, più carte basse), bilanciati (1 credito, 4 per valore) o turbo (4 crediti, più carte alte). [b]Batteria[/b]: piccola (gratis, 3 punti gadget in meno), media (2 crediti) o grande (4 crediti, 3 punti in più). Ogni [b]gadget montato[/b] costa 1 credito: in gara puoi usare solo quelli montati. La navetta di serie ha scafo medio, motori bilanciati, batteria media e tutti i gadget.
+	c1.add_child(_rule_text("""Dal menu, «Officina»: costruisci la tua navetta con [b]%d crediti[/b] e dalle un nome. [b]Scafo[/b], cioè quanti danni reggi (ogni danno è una carta inutile che occupa posto in mano): leggero (gratis, il 4° danno la distrugge), medio (2 crediti, il 5°, come di serie) o pesante (4 crediti: il primo danno non toglie carte e solo il 6° la distrugge). [b]Mazzo dei motori[/b], le tue 20 carte da 1 a 5: economico (gratis, più carte basse), bilanciato (1 credito, 4 per valore) o turbo (4 crediti, più carte alte). [b]Tipo di motori[/b], cioè come guidi: normali (gratis), oppure per 2 crediti stabili (a ogni mossa puoi derivare di una corsia in meno, se ti conviene), agili (in curva troppo forte il primo danno è solo mezzo danno), potenti (+1 alla velocità con i motori pari, ma con motori diversi derivi di 1 in più) o ionici (+1 punto gadget ogni 2 turni). [b]Batteria[/b]: piccola (gratis, 3 punti gadget in meno), media (2 crediti) o grande (4 crediti, 3 punti in più). Ogni [b]gadget montato[/b] costa 1 credito: in gara puoi usare solo quelli montati. La navetta di serie ha scafo medio, mazzo bilanciato, motori normali, batteria media e tutti i gadget.
 
 Le navette si salvano sul dispositivo e si possono pubblicare nella [b]galleria online[/b], dove si prendono quelle degli altri. Nel menu, sotto ogni colore, scegli quale navetta corre (anche per la CPU); online ognuno porta la sua.""" % ShipBuild.CREDITS))
 	c1.add_child(UIKit.heading("Varianti"))
@@ -2909,7 +2909,8 @@ func _stat_grid() -> Control:
 	var nl := course.next_limit(float(c["s"]))
 	if not nl.is_empty():
 		var dist := int(round((float(nl["s"]) - float(c["s"])) / course.cell_len))
-		rows.append(["Curva, limite %d" % nl["lim"], "fra %d" % max(dist, 0), speed > int(nl["lim"]) and dist <= speed])
+		var lim: int = int(nl["lim"]) + cur.curve_mod
+		rows.append(["Curva, limite %d" % lim, "fra %d" % max(dist, 0), speed > lim and dist <= speed])
 	else:
 		var df := int(round((course.finish_s - float(c["s"])) / course.cell_len))
 		rows.append(["Traguardo", ("fra %d" % df) if df > 0 else "passato", false])
@@ -3200,8 +3201,9 @@ func _stats(m: Dictionary) -> RichTextLabel:
 	var nl := course.next_limit(float(c["s"]))
 	if not nl.is_empty():
 		var dist := int(round((float(nl["s"]) - float(c["s"])) / course.cell_len))
-		var warn: bool = speed > int(nl["lim"]) and dist <= speed
-		t += "   %sCurva a [b]%d[/b], limite [b]%d[/b]%s" % ["[color=#c93636]" if warn else "", max(dist, 0), nl["lim"], "[/color]" if warn else ""]
+		var lim: int = int(nl["lim"]) + cur.curve_mod
+		var warn: bool = speed > lim and dist <= speed
+		t += "   %sCurva a [b]%d[/b], limite [b]%d[/b]%s" % ["[color=#c93636]" if warn else "", max(dist, 0), lim, "[/color]" if warn else ""]
 	else:
 		var dist2 := int(round((course.finish_s - float(c["s"])) / course.cell_len))
 		if dist2 > 0:
@@ -3212,7 +3214,7 @@ func _stats(m: Dictionary) -> RichTextLabel:
 		if dl <= 12:
 			var slow: bool = speed < int(lp["min"]) and dl <= speed
 			t += "   %sSalto a [b]%d[/b], velocità minima [b]%d[/b]%s" % ["[color=#c93636]" if slow else "", max(dl, 0), lp["min"], "[/color]" if slow else ""]
-	t += "   Danni [b]%d/4[/b]" % cur.dents
+	t += "   Danni [b]%d/%d[/b]" % [cur.dents, cur.max_dents]
 	return _hint(t)
 
 func _hand(p, interactive: bool, small := false) -> ScrollContainer:
@@ -3243,7 +3245,7 @@ func _hand(p, interactive: bool, small := false) -> ScrollContainer:
 		cv.setup.call_deferred(v, interactive and sel == i, res, dis, p.seat)
 		cv.pressed.connect(_tap_card.bind(i))
 		row.add_child(cv)
-	for i in p.dents:
+	for i in game.dent_cards(p):
 		var dv := CardView.new()
 		dv.custom_minimum_size = csz
 		dv.setup.call_deferred(0, false, false, true)

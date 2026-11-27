@@ -28,7 +28,17 @@ func _init() -> void:
 		# ogni modello pronto su un colore diverso, a rotazione
 		var ships := {}
 		for i in 5:
-			ships[str(i)] = ShipBuild.PRESETS[(i + g) % 5]
+			ships[str(i)] = ShipBuild.PRESETS[(i + g) % ShipBuild.PRESETS.size()]
+			if OS.get_environment("ST_MT") == "1":
+				# solo il tipo di motori cambia: stessa navetta di serie, gadget tolti per pagarlo
+				var mt := (i + g) % ShipBuild.MOTOR_TYPES.size()
+				var sc := ShipBuild.standard()
+				sc["mt"] = mt
+				sc["name"] = ShipBuild.MOTOR_TYPES[mt][0]
+				var gg: Array = sc["g"]
+				while ShipBuild.cost(sc) > ShipBuild.CREDITS:
+					gg.pop_back()
+				ships[str(i)] = sc
 		game.setup(c, [true, true, true, true, true], 0, ships)
 		for p in game.players:
 			var fs := game.free_slots()

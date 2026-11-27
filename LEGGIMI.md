@@ -98,12 +98,13 @@ giocatore costruisce la sua navetta con 15 crediti e le dà un nome.
 
 | Parte | Scelte (costo) |
 |---|---|
-| Scafo | leggero (0, regge 3 danni), medio (2, 4 danni), pesante (3, 5 danni) |
-| Motori (mazzo di 20 carte) | economici (0: 5-5-4-3-3 carte da 1 a 5), bilanciati (1: 4 per valore), turbo (4: 3-3-4-5-5) |
+| Scafo | leggero (0, distrutta al 4° danno), medio (2, al 5°), pesante (4, al 6°; il primo danno non occupa posto in mano) |
+| Mazzo dei motori (20 carte) | economico (0: 5-5-4-3-3 carte da 1 a 5), bilanciato (1: 4 per valore), turbo (4: 3-3-4-5-5) |
+| Tipo di motori | normali (0), oppure per 2 crediti: stabili (si può derivare di una corsia in meno), agili (in curva il primo danno è mezzo), potenti (+1 velocità a motori pari, deriva +1 a motori diversi), ionici (+1 punto gadget ogni 2 turni) |
 | Batteria | piccola (0, −3 punti gadget), media (2), grande (4, +3 punti) |
 | Gadget montati | 1 credito ciascuno: in gara si usano solo quelli |
 
-La navetta di serie (medio, bilanciati, media, tutti i 10 gadget) costa esattamente 15 crediti.
+La navetta di serie (medio, mazzo bilanciato, motori normali, media, tutti i 10 gadget) costa esattamente 15 crediti.
 Modelli pronti: Di serie, Predatore, Fortezza, Sprinter, Cecchino (equilibrati con
 `tests/ship_check.gd`, che fa correre i modelli uno contro l'altro). Le navette si salvano in
 `user://navette.json` e si pubblicano nella galleria online `iontails/ships/<id>` (blocco `ships`

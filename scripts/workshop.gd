@@ -108,7 +108,8 @@ func _build() -> void:
 	rc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cols.add_child(rc)
 	_part_row(rc, "Scafo", "hull", ShipBuild.HULLS, 1, 5)
-	_part_row(rc, "Motori", "eng", ShipBuild.ENGINES, 1, 3)
+	_part_row(rc, "Mazzo dei motori (le tue 20 carte)", "eng", ShipBuild.ENGINES, 1, 3)
+	_part_row(rc, "Tipo di motori (come guidi)", "mt", ShipBuild.MOTOR_TYPES, 1, 2, 0)
 	_part_row(rc, "Batteria", "bat", ShipBuild.BATTERIES, 1, 3)
 	var gh := HBoxContainer.new()
 	var ghl := UIKit.heading("Gadget montati (1 credito l'uno)")
@@ -148,11 +149,13 @@ func _build() -> void:
 	add_child(acts)
 
 ## Riga di tre schede (scafo, motori o batteria): nome, costo e descrizione.
-func _part_row(parent: Control, title: String, key: String, opts: Array, cost_i: int, desc_i: int) -> void:
+func _part_row(parent: Control, title: String, key: String, opts: Array, cost_i: int, desc_i: int, def := 1) -> void:
 	parent.add_child(UIKit.heading(title))
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
-	var cur := int(cfg.get(key, 1))
+	var row := GridContainer.new()
+	row.columns = opts.size() if (land or opts.size() <= 3) else 3
+	row.add_theme_constant_override("h_separation", 6)
+	row.add_theme_constant_override("v_separation", 6)
+	var cur := int(cfg.get(key, def))
 	for i in opts.size():
 		var o: Array = opts[i]
 		var on := i == cur
@@ -161,7 +164,7 @@ func _part_row(parent: Control, title: String, key: String, opts: Array, cost_i:
 		var ok := ShipBuild.cost(trial) <= ShipBuild.CREDITS
 		var b := Button.new()
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size = Vector2(150, 84)
+		b.custom_minimum_size = Vector2(150 if opts.size() <= 3 else 110, (84 if land else 100) if opts.size() <= 3 else 100)
 		b.disabled = not on and not ok
 		_style_choice(b, on)
 		var v := VBoxContainer.new()
@@ -252,12 +255,13 @@ func _stats_box() -> Control:
 	var hull: Array = ShipBuild.HULLS[int(cfg["hull"])]
 	var eng: Array = ShipBuild.ENGINES[int(cfg["eng"])]
 	var bat := ShipBuild.battery(cfg)
-	var cm := int(hull[3])
+	var cm := ShipBuild.curve_mod(cfg)
 	var cnt: Array = eng[2]
 	var lines := [
-		"Regge [b]%d[/b] danni, [b]%d[/b] carte in mano" % [int(hull[2]), int(hull[4])],
+		"Distrutta al [b]%d°[/b] danno, [b]%d[/b] carte in mano" % [int(hull[2]) + 1, ShipBuild.hand_max(cfg)],
 		"Curve: [b]%s[/b]" % ("+%d al limite" % cm if cm > 0 else ("%d al limite" % cm if cm < 0 else "limite normale")),
 		"Carte da 1 a 5: [b]%d, %d, %d, %d, %d[/b]" % cnt,
+		"Motori: [b]%s[/b]" % String(ShipBuild.MOTOR_TYPES[ShipBuild.motor(cfg)][0]).to_lower(),
 		"Punti gadget: [b]%s[/b]" % ("normali" if bat == 0 else ("%+d" % bat)),
 	]
 	var r := UIKit.rich(15)

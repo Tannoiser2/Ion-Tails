@@ -9,15 +9,23 @@ const CREDITS := 15
 const MODELS := ["Fenice rossa", "Lama blu", "Vespa gialla", "Mantide verde", "Ombra viola"]
 ## [nome, costo, danni che regge, modifica al limite delle curve, carte in mano, descrizione]
 const HULLS := [
-	["Leggero", 0, 3, 0, 5, "regge solo 3 danni"],
-	["Medio", 2, 4, 0, 5, "regge 4 danni, come le navette di serie"],
-	["Pesante", 3, 5, 0, 5, "regge 5 danni"],
+	["Leggero", 0, 3, 0, 5, "fragile: il 4° danno la distrugge"],
+	["Medio", 2, 4, 0, 5, "il 5° danno la distrugge, come di serie"],
+	["Pesante", 4, 5, 0, 5, "regge un danno in più: il 1° non toglie carte, il 6° la distrugge"],
 ]
 ## [nome, costo, quante carte da 1, 2, 3, 4, 5 (20 in tutto), descrizione]
 const ENGINES := [
-	["Economici", 0, [5, 5, 4, 3, 3], "più carte basse: si va piano ma si curva bene"],
-	["Bilanciati", 1, [4, 4, 4, 4, 4], "quattro carte per valore, come di serie"],
+	["Economico", 0, [5, 5, 4, 3, 3], "più carte basse: si va piano ma si curva bene"],
+	["Bilanciato", 1, [4, 4, 4, 4, 4], "quattro carte per valore, come di serie"],
 	["Turbo", 4, [3, 3, 4, 5, 5], "più carte alte: veloci, ma attenzione alle curve"],
+]
+## Tipo di motori: come guidi. [nome, costo, descrizione]
+const MOTOR_TYPES := [
+	["Normali", 0, "nessun effetto, come di serie"],
+	["Stabili", 2, "a ogni mossa puoi derivare di una corsia in meno, se ti conviene"],
+	["Agili", 2, "in curva troppo forte il primo danno è solo mezzo danno"],
+	["Potenti", 2, "+1 alla velocità con i due motori pari, ma con motori diversi derivi di 1 in più"],
+	["Ionici", 2, "+1 punto gadget ogni 2 turni"],
 ]
 ## [nome, costo, punti gadget in più o in meno, descrizione]
 const BATTERIES := [
@@ -27,18 +35,19 @@ const BATTERIES := [
 ]
 const GADGET_COST := 1
 const PRESETS := [
-	{"name": "Di serie", "model": -1, "hull": 1, "eng": 1, "bat": 1, "g": ["sn", "mi", "ms", "sh", "ra", "cm", "iv", "bo", "ho", "bl"]},
-	{"name": "Predatore", "model": 0, "hull": 0, "eng": 2, "bat": 1, "g": ["sn", "mi", "ms", "iv", "bo", "ho", "bl", "sh", "cm"]},
-	{"name": "Fortezza", "model": 4, "hull": 2, "eng": 1, "bat": 2, "g": ["sh", "cm", "ra", "mi", "sn", "bo", "ms"]},
-	{"name": "Sprinter", "model": 2, "hull": 0, "eng": 2, "bat": 2, "g": ["bo", "ho", "bl", "sh", "cm", "iv", "mi"]},
-	{"name": "Cecchino", "model": 3, "hull": 1, "eng": 0, "bat": 2, "g": ["sn", "ms", "mi", "sh", "ra", "iv", "cm", "ho", "bl"]},
+	{"name": "Di serie", "model": -1, "hull": 1, "eng": 1, "mt": 0, "bat": 1, "g": ["sn", "mi", "ms", "sh", "ra", "cm", "iv", "bo", "ho", "bl"]},
+	{"name": "Predatore", "model": 0, "hull": 0, "eng": 2, "mt": 3, "bat": 1, "g": ["sn", "mi", "ms", "iv", "bo", "ho", "bl"]},
+	{"name": "Fortezza", "model": 4, "hull": 2, "eng": 1, "mt": 0, "bat": 2, "g": ["sh", "cm", "ra", "mi", "sn", "bo"]},
+	{"name": "Sprinter", "model": 2, "hull": 0, "eng": 2, "mt": 2, "bat": 2, "g": ["bo", "ho", "bl", "sh", "cm"]},
+	{"name": "Cecchino", "model": 3, "hull": 1, "eng": 0, "mt": 1, "bat": 2, "g": ["sn", "ms", "mi", "sh", "ra", "iv", "cm"]},
+	{"name": "Ionico", "model": 1, "hull": 1, "eng": 1, "mt": 4, "bat": 1, "g": ["sn", "mi", "ms", "sh", "cm", "iv", "bo", "ho"]},
 ]
 
 static func standard() -> Dictionary:
 	return (PRESETS[0] as Dictionary).duplicate(true)
 
 static func cost(c: Dictionary) -> int:
-	var n: int = int(HULLS[_i(c, "hull", 1)][1]) + int(ENGINES[_i(c, "eng", 1)][1]) + int(BATTERIES[_i(c, "bat", 1)][1])
+	var n: int = int(HULLS[_i(c, "hull", 1)][1]) + int(ENGINES[_i(c, "eng", 1)][1]) + int(BATTERIES[_i(c, "bat", 1)][1]) + int(MOTOR_TYPES[motor(c)][1])
 	return n + _gadgets(c).size() * GADGET_COST
 
 static func left(c: Dictionary) -> int:
@@ -46,6 +55,9 @@ static func left(c: Dictionary) -> int:
 
 static func _i(c: Dictionary, k: String, d: int) -> int:
 	return clampi(int(c.get(k, d)), 0, 2)
+
+static func motor(c: Dictionary) -> int:
+	return clampi(int(c.get("mt", 0)), 0, MOTOR_TYPES.size() - 1)
 
 static func _gadgets(c: Dictionary) -> Array:
 	var out := []
@@ -64,7 +76,7 @@ static func sanitize(c) -> Dictionary:
 	var out := {
 		"name": str(c.get("name", "Navetta")).strip_edges().substr(0, 24),
 		"model": clampi(int(c.get("model", -1)), -1, MODELS.size() - 1),
-		"hull": _i(c, "hull", 1), "eng": _i(c, "eng", 1), "bat": _i(c, "bat", 1),
+		"hull": _i(c, "hull", 1), "eng": _i(c, "eng", 1), "bat": _i(c, "bat", 1), "mt": motor(c),
 		"g": _gadgets(c),
 	}
 	if out["name"] == "":
@@ -105,9 +117,9 @@ static func battery(c: Dictionary) -> int:
 ## Riassunto in una riga.
 static func summary(c: Dictionary) -> String:
 	var g := _gadgets(c)
-	return "Scafo %s · motori %s · batteria %s · %d gadget" % [
+	return "Scafo %s · mazzo %s · motori %s · batteria %s · %d gadget" % [
 		String(HULLS[_i(c, "hull", 1)][0]).to_lower(), String(ENGINES[_i(c, "eng", 1)][0]).to_lower(),
-		String(BATTERIES[_i(c, "bat", 1)][0]).to_lower(), g.size()]
+		String(MOTOR_TYPES[motor(c)][0]).to_lower(), String(BATTERIES[_i(c, "bat", 1)][0]).to_lower(), g.size()]
 
 # ---------- salvataggi sul dispositivo ----------
 const FILE := "user://navette.json"
