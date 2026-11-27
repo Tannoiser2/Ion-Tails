@@ -177,7 +177,7 @@ func setup(c: Course, g: SledGame) -> void:
 		add_child(_fx)
 	for p in g.players:
 		var tm := TeamModel.new()
-		tm.build(p.color, p.seat)
+		tm.build(p.color, p.model if p.model >= 0 else p.seat)
 		tm.visible = false
 		add_child(tm)
 		var lb := Label3D.new()

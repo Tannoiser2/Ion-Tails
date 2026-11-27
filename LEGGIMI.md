@@ -92,6 +92,24 @@ con l'1, lunga e intensa con il 5. Nel replay si rivedono tutti gli effetti dei 
 - `tests/online_play.gd` con `tests/firebase_mock.py`: due istanze giocano una gara online
   (usare `ST_SESSION` diverso per le due istanze) e le impronte finali devono coincidere.
 
+## Officina
+Menu → «Officina» (`scripts/workshop.gd`, regole e salvataggi in `scripts/ship_build.gd`): ogni
+giocatore costruisce la sua navetta con 15 crediti e le dà un nome.
+
+| Parte | Scelte (costo) |
+|---|---|
+| Scafo | leggero (0, regge 3 danni), medio (2, 4 danni), pesante (3, 5 danni) |
+| Motori (mazzo di 20 carte) | economici (0: 5-5-4-3-3 carte da 1 a 5), bilanciati (1: 4 per valore), turbo (4: 3-3-4-5-5) |
+| Batteria | piccola (0, −3 punti gadget), media (2), grande (4, +3 punti) |
+| Gadget montati | 1 credito ciascuno: in gara si usano solo quelli |
+
+La navetta di serie (medio, bilanciati, media, tutti i 10 gadget) costa esattamente 15 crediti.
+Modelli pronti: Di serie, Predatore, Fortezza, Sprinter, Cecchino (equilibrati con
+`tests/ship_check.gd`, che fa correre i modelli uno contro l'altro). Le navette si salvano in
+`user://navette.json` e si pubblicano nella galleria online `iontails/ships/<id>` (blocco `ships`
+di `firebase/database.rules.json`). Nel menu, sotto ogni colore, c'è la tendina della navetta;
+online ognuno porta la sua (campo `ship` del posto nella stanza, poi `game.ships`).
+
 ## Online
 Come Snow Tails: «Crea una stanza», «Schermo condiviso: si gioca col telefono» (QR con l'indirizzo
 `…/Ion-Tails/?r=CODICE`), rientro con lo stesso codice. Le stanze usano la regola generica `$game`

@@ -43,6 +43,7 @@ var setup_on := [true, true, true, true, false]   # colori in gara (il "no" del 
 var _preview_sig := ""
 var show_paths := false        # anteprima dei percorsi mentre si scelgono le carte
 var setup_ai := [false, true, true, true, true]
+var setup_ship := [{}, {}, {}, {}, {}]   # navetta di ogni colore ({} = di serie)
 ## Variante personale: programmazione e movimento simultanei (solo partite su questo dispositivo).
 var sim_variant := false
 signal sim_step
@@ -50,6 +51,7 @@ var sim_progs := {}
 var sim_racers: Array = []     # online simultaneo: navette che programmano in questo giro (in ordine)
 var sim_base := 0              # online simultaneo: numero della prima mossa del giro
 var _posting_prog := false
+var _phone_ship := {}           # navetta scelta dal telefono che entra nella stanza
 var _join_want := -1           # colore scelto dal telefono che entra nella stanza
 var course_files: Array = []
 var course_idx := 0
@@ -474,6 +476,12 @@ func show_menu() -> void:
 	brul.size_flags_horizontal = 0
 	brul.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	brul.pressed.connect(show_help.bind(false))
+	var bws := UIKit.button("Officina")
+	bws.custom_minimum_size = Vector2(150, 48)
+	bws.size_flags_horizontal = 0
+	bws.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bws.pressed.connect(show_workshop)
+	trow.add_child(bws)
 	trow.add_child(brul)
 	left.add_child(trow)
 	left.add_child(UIKit.heading("Percorso"))
@@ -1000,19 +1008,107 @@ func _menu_rebuild_players() -> void:
 		if i >= _menu_thumbs.size() or not is_instance_valid(_menu_thumbs[i]):
 			if i >= _menu_thumbs.size():
 				_menu_thumbs.resize(i + 1)
-			_menu_thumbs[i] = SledThumb.new(SledGame.COLORS[i], 220, 62, i)
+			_menu_thumbs[i] = SledThumb.new(SledGame.COLORS[i], 220, 62, _seat_model(i))
 		var th: SledThumb = _menu_thumbs[i]
 		th.set_active(on)
 		th.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		th.tooltip_text = SledGame.NAMES[i]
-		r.add_child(th)
+		# a sinistra la navetta con sotto la tendina per sceglierla, a destra chi la guida
+		var lc := VBoxContainer.new()
+		lc.add_theme_constant_override("separation", 2)
+		lc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		th.custom_minimum_size = Vector2(200, 46 if on else 52)
+		lc.add_child(th)
+		if on:
+			lc.add_child(_ship_picker(i))
+		r.add_child(lc)
 		for opt in [["no", "No", not on, 80], ["human", "Persona", on and not setup_ai[i], 130], ["cpu", "CPU", on and setup_ai[i], 100]]:
 			var b := UIKit.button(opt[1], opt[2])
 			b.custom_minimum_size = Vector2(opt[3], 52)
 			b.size_flags_horizontal = 0
+			b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			b.pressed.connect(_menu_set_seat.bind(i, opt[0]))
 			r.add_child(b)
 		_menu_rows.add_child(r)
+
+## Modello 3D della navetta scelta per il colore i.
+func _seat_model(i: int) -> int:
+	var c: Dictionary = setup_ship[i]
+	var m := int(c.get("model", -1)) if not c.is_empty() else -1
+	return m if m >= 0 else i
+
+## Le navette che si possono scegliere: di serie, modelli pronti, quelle salvate in officina.
+func _ship_choices() -> Array:
+	var out := []
+	for p in ShipBuild.PRESETS:
+		out.append(ShipBuild.sanitize(p))
+	out.append_array(ShipBuild.load_local())
+	return out
+
+## Tendina con la navetta del colore i.
+func _ship_picker(i: int) -> Control:
+	var row := HBoxContainer.new()
+	var ob := OptionButton.new()
+	UIKit.style_option(ob)
+	ob.add_theme_font_size_override("font_size", 16)
+	ob.custom_minimum_size = Vector2(0, 36)
+	ob.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ob.clip_text = true
+	ob.get_popup().add_theme_font_size_override("font_size", 22)
+	var ch := _ship_choices()
+	var cur_c: Dictionary = setup_ship[i]
+	var sel := 0
+	for k in ch.size():
+		var c: Dictionary = ch[k]
+		var label := str(c["name"])
+		if k >= ShipBuild.PRESETS.size():
+			label += "  (tua)"
+		ob.add_item(label, k)
+		if not cur_c.is_empty() and ((cur_c.has("id") and str(cur_c["id"]) == str(c.get("id", ""))) or (not cur_c.has("id") and not c.has("id") and str(cur_c.get("name", "")) == str(c["name"]))):
+			sel = k
+	ob.select(sel)
+	ob.item_selected.connect(func(k: int):
+		setup_ship[i] = {} if k == 0 else (ch[k] as Dictionary).duplicate(true)
+		if i < _menu_thumbs.size() and is_instance_valid(_menu_thumbs[i]):
+			_menu_thumbs[i].queue_free()
+			_menu_thumbs[i] = null
+		_menu_rebuild_players())
+	row.add_child(ob)
+	return row
+
+## Navette di tutti i colori per la gara (chiave: indice del colore, valore: configurazione).
+func _seat_ships() -> Dictionary:
+	var out := {}
+	for i in setup_ship.size():
+		if not (setup_ship[i] as Dictionary).is_empty():
+			out[str(i)] = setup_ship[i]
+	return out
+
+## La mia navetta per le partite online (quella del primo colore «Persona» del menu).
+func _my_ship(seat := -1) -> Dictionary:
+	if not _phone_ship.is_empty():
+		return _phone_ship
+	if seat >= 0 and seat < setup_ship.size() and not (setup_ship[seat] as Dictionary).is_empty():
+		return setup_ship[seat]
+	for i in setup_on.size():
+		if setup_on[i] and not setup_ai[i] and not (setup_ship[i] as Dictionary).is_empty():
+			return setup_ship[i]
+	return {}
+
+## Officina: costruzione e galleria delle navette.
+func show_workshop() -> void:
+	var ws := Workshop.new(self, _is_landscape(), {})
+	ws.closed.connect(func():
+		# le navette salvate o cambiate si ritrovano nella scelta del menu
+		for i in setup_ship.size():
+			var c: Dictionary = setup_ship[i]
+			if c.has("id"):
+				for x in ShipBuild.load_local():
+					if str(x["id"]) == str(c["id"]):
+						setup_ship[i] = x
+		_menu_thumbs = []
+		show_menu())
+	_modal(ws, 1180 if _is_landscape() else 720, true)
 
 ## Il percorso scelto (o in corso) usa segmenti fanmade?
 func _uses_fan() -> bool:
@@ -1144,6 +1240,10 @@ func show_help(force_fan := false) -> void:
 [b]Postbruciatore.[/b] +1 (1 punto) o +2 (2 punti) alla velocità di questa mossa: conta anche per i limiti delle curve.
 [b]Arpione.[/b] Appena tutti hanno scelto i gadget, la navetta più vicina davanti a te (fino a %d passi) viene tirata subito indietro di 1 casella (1 punto) o 2 (2 punti), se dietro di lei c'è posto.
 [b]Blast ionico.[/b] A fine mossa parte un'onda dalla tua casella: tutte le navette entro 1 casella (1 punto) o 2 (2 punti), davanti, dietro o di lato, vengono spinte di una corsia lontano da te (se sono nella tua corsia, verso il bordo più vicino). Chi sbatte contro il bordo prende mezzo danno; se la casella accanto è occupata resta dov'è.""" % [int(SledGame.BUDGET_DIV), SledGame.HOOK_RANGE]))
+	c1.add_child(UIKit.heading("Officina"))
+	c1.add_child(_rule_text("""Dal menu, «Officina»: costruisci la tua navetta con [b]%d crediti[/b] e dalle un nome. [b]Scafo[/b]: leggero (gratis, regge 3 danni), medio (2 crediti, 4 danni) o pesante (3 crediti, 5 danni). [b]Motori[/b], cioè il tuo mazzo di 20 carte: economici (gratis, più carte basse), bilanciati (1 credito, 4 per valore) o turbo (4 crediti, più carte alte). [b]Batteria[/b]: piccola (gratis, 3 punti gadget in meno), media (2 crediti) o grande (4 crediti, 3 punti in più). Ogni [b]gadget montato[/b] costa 1 credito: in gara puoi usare solo quelli montati. La navetta di serie ha scafo medio, motori bilanciati, batteria media e tutti i gadget.
+
+Le navette si salvano sul dispositivo e si possono pubblicare nella [b]galleria online[/b], dove si prendono quelle degli altri. Nel menu, sotto ogni colore, scegli quale navetta corre (anche per la CPU); online ognuno porta la sua.""" % ShipBuild.CREDITS))
 	c1.add_child(UIKit.heading("Varianti"))
 	c1.add_child(_rule_text("""[b]Simultaneo.[/b] Tutti programmano la mossa (carte e casella d'arrivo) senza vedere quella degli altri, poi le navette partono insieme: chi ha più caselle da fare va più veloce. Due navette non entrano mai nella stessa casella nello stesso momento: se possono la evitano, altrimenti entra la più veloce (a parità, chi era più avanti) e l'altra si ferma prima con mezzo danno.
 
@@ -1193,13 +1293,13 @@ func start_game() -> void:
 				files.append(f)
 		if files.is_empty():
 			return
-		tour = {"files": files, "i": 0, "flags": _seat_flags(), "tot": {}, "races": [], "names": {}}
+		tour = {"files": files, "i": 0, "flags": _seat_flags(), "tot": {}, "races": [], "names": {}, "ships": _seat_ships()}
 		_tour_race()
 		return
 	var def := _menu_course_def()
 	if def.is_empty():
 		return
-	_begin_race(Course.randomize_def(def), _seat_flags(), 0)
+	_begin_race(Course.randomize_def(def), _seat_flags(), 0, {}, _seat_ships())
 
 ## Gran Tour: corre la pista numero tour.i con le stesse navette.
 func _tour_race() -> void:
@@ -1207,7 +1307,7 @@ func _tour_race() -> void:
 	if not d is Dictionary:
 		_toast("Percorso non valido")
 		return
-	_begin_race(Course.randomize_def(d), tour["flags"], 0)
+	_begin_race(Course.randomize_def(d), tour["flags"], 0, {}, tour.get("ships", {}))
 	game.log_text = "Gran Tour, gara %d di %d: [b]%s[/b]." % [int(tour["i"]) + 1, tour["files"].size(), course.title]
 	_refresh()
 
@@ -1343,7 +1443,7 @@ func _menu_course_def() -> Dictionary:
 	return d if d is Dictionary else {}
 
 ## Avvia la gara: in locale con seme qualunque, online con il seme e le navette decisi da chi ha creato la stanza.
-func _begin_race(def: Dictionary, ai_flags: Array, seed_value: int, names := {}) -> void:
+func _begin_race(def: Dictionary, ai_flags: Array, seed_value: int, names := {}, ships := {}) -> void:
 	course = Course.new()
 	if not course.build(def):
 		_toast("Percorso non valido: " + course.error)
@@ -1351,7 +1451,7 @@ func _begin_race(def: Dictionary, ai_flags: Array, seed_value: int, names := {})
 	race_id += 1
 	_close_modal()
 	game = SledGame.new()
-	game.setup(course, ai_flags, seed_value)
+	game.setup(course, ai_flags, seed_value, ships)
 	game.simultaneous = sim_variant if online.is_empty() else bool(online.get("sim", false))
 	for k in names:
 		for p in game.players:
@@ -1814,6 +1914,11 @@ func _show_results() -> void:
 		var dd: int = r["p"].dents
 		var st := UIKit.label(String(r["st"]).capitalize() if false else String(r["st"]) + ("" if dd == 0 or r["st"] == "distrutta" else "  ·  %d dann%s" % [dd, "o" if dd == 1 else "e"]), 19, UIKit.MUTED)
 		col.add_child(st)
+		var shn := str(r["p"].ship.get("name", ""))
+		if shn != "" and shn != "Di serie":
+			var sl := UIKit.label("navetta «%s»" % shn, 16, UIKit.HEAD)
+			sl.autowrap_mode = TextServer.AUTOWRAP_OFF
+			col.add_child(sl)
 		vb.add_child(card)
 	var acts := HBoxContainer.new()
 	acts.add_theme_constant_override("separation", 10)
@@ -2098,7 +2203,7 @@ func _tap_card(i: int) -> void:
 		disc_buf.append(cur.hand[i])
 		cur.discard.append(cur.hand[i])
 		cur.hand.remove_at(i)
-		if game.hand_size(cur) <= 5 or cur.hand.is_empty():
+		if game.over_hand(cur) <= 0 or cur.hand.is_empty():
 			_do_act({"k": "disc", "v": disc_buf.duplicate()}, null, true)
 		else:
 			_refresh()
@@ -2885,7 +2990,7 @@ func _action_text() -> String:
 			return "Tocca sulla pista la casella d'arrivo ([b]−n[/b] danni, [b]+B[/b] bonus)."
 		"discard":
 			if cur != null:
-				return "Scarta [b]%d[/b] carta/e dalla mano." % (game.hand_size(cur) - 5)
+				return "Scarta [b]%d[/b] carta/e dalla mano." % game.over_hand(cur)
 		"ai":
 			if cur != null:
 				return "[b]%s[/b] (CPU) sta guidando…" % cur.name
@@ -3487,7 +3592,7 @@ func _online_create(table := false) -> void:
 		_on_text("Metti su «Persona» almeno due navette: la prima è la tua, le altre sono i posti per gli amici.")
 		return
 	_on_text("Creo la stanza…")
-	var code := await _net().create_room(nm if nm != "" else "Schermo", seats, table)
+	var code := await _net().create_room(nm if nm != "" else "Schermo", seats, table, "" if table else ShipBuild.to_json(_my_ship(seats[0])))
 	if code == "":
 		_on_text("Non riesco a creare la stanza.\n%s" % net.last_error)
 		return
@@ -3597,7 +3702,22 @@ func _phone_join(code: String) -> void:
 	_on_code.text = code
 	_on_code.visible = false
 	vb.add_child(_on_code)
-	vb.add_child(UIKit.label("Scegli la navetta:", 19, UIKit.MUTED))
+	# la navetta dell'officina (di serie, modelli pronti o salvate su questo telefono)
+	vb.add_child(UIKit.label("La tua navetta:", 19, UIKit.MUTED))
+	var ob := OptionButton.new()
+	UIKit.style_option(ob)
+	ob.add_theme_font_size_override("font_size", 20)
+	ob.custom_minimum_size = Vector2(0, 54)
+	ob.get_popup().add_theme_font_size_override("font_size", 24)
+	var ch := _ship_choices()
+	for k in ch.size():
+		ob.add_item(str(ch[k]["name"]), k)
+		if not _phone_ship.is_empty() and str(_phone_ship.get("name", "")) == str(ch[k]["name"]):
+			ob.select(k)
+	ob.item_selected.connect(func(k: int):
+		_phone_ship = {} if k == 0 else (ch[k] as Dictionary).duplicate(true))
+	vb.add_child(ob)
+	vb.add_child(UIKit.label("Scegli il colore:", 19, UIKit.MUTED))
 	var colors := VBoxContainer.new()
 	colors.add_theme_constant_override("separation", 8)
 	vb.add_child(colors)
@@ -3646,7 +3766,7 @@ func _online_join() -> void:
 	if not online.is_empty() and online.get("code", "") == code:
 		return
 	_on_text("Entro nella stanza %s…" % code)
-	var seat := await _net().join_room(code, nm, _join_want)
+	var seat := await _net().join_room(code, nm, _join_want, ShipBuild.to_json(_my_ship(_join_want)))
 	if seat == -3:
 		# lo schermo condiviso che aveva creato la stanza la riapre
 		var rm: Dictionary = net.last_room
@@ -3682,6 +3802,15 @@ func _online_lobby_poll(code: String) -> void:
 			_on_text("La stanza %s non esiste più." % code)
 			online = {}
 			return
+		# la navetta scelta nel menu arriva agli altri (anche se la si cambia nella sala d'attesa)
+		var myseat := int(online.get("seat", -1))
+		if myseat >= 0:
+			var js := ShipBuild.to_json(_my_ship(myseat))
+			var seats_now := Net._as_dict(room.get("seats", {}))
+			var st = seats_now.get(str(myseat), {})
+			if st is Dictionary and str(st.get("ship", "")) != js and online.get("ship_try", "") != js:
+				online["ship_try"] = js
+				net.set_seat_ship(code, myseat, js)
 		if online["role"] == "host":
 			_on_text("Stanza [ %s ]: dai il codice ai tuoi amici.\nPosti: %s.\nQuando ci siete tutti premi «Inizia la gara»: i posti liberi li guida la CPU." % [code, _seats_text(room)])
 		else:
@@ -3709,6 +3838,7 @@ func _online_start() -> void:
 		return
 	var ai := []
 	var names := {}
+	var ships := {}
 	for i in setup_on.size():
 		var k := str(i)
 		if not setup_on[i]:
@@ -3716,9 +3846,13 @@ func _online_start() -> void:
 		elif seats.has(k) and seats[k] is Dictionary:
 			ai.append(0)
 			names[k] = str(seats[k].get("name", ""))
+			if str(seats[k].get("ship", "")) != "":
+				ships[k] = str(seats[k]["ship"])
 		else:
 			ai.append(1)
-	var g := {"seed": 1 + randi() % 2000000000, "def": JSON.stringify(def), "ai": ai, "names": names, "sim": sim_variant}
+			if not (setup_ship[i] as Dictionary).is_empty():
+				ships[k] = ShipBuild.to_json(setup_ship[i])
+	var g := {"seed": 1 + randi() % 2000000000, "def": JSON.stringify(def), "ai": ai, "names": names, "sim": sim_variant, "ships": ships}
 	if not await net.start_room(code, g):
 		_on_text("Non riesco ad avviare la gara (%s)." % net.last_error)
 		return
@@ -3743,7 +3877,11 @@ func _online_begin(g: Dictionary, rejoin: bool) -> void:
 	for x in g.get("ai", []):
 		ai.append(x if x is bool else int(x))
 	var names: Dictionary = g.get("names", {}) if g.get("names") is Dictionary else Net._as_dict(g.get("names", {}))
-	_begin_race(def if def is Dictionary else {}, ai, int(g.get("seed", 1)), names)
+	var ships := {}
+	var gs: Dictionary = g.get("ships", {}) if g.get("ships") is Dictionary else Net._as_dict(g.get("ships", {}))
+	for k in gs:
+		ships[str(k)] = ShipBuild.from_json(str(gs[k]))
+	_begin_race(def if def is Dictionary else {}, ai, int(g.get("seed", 1)), names, ships)
 	if online["role"] != "host" and int(online["seat"]) >= 0:
 		_heartbeat(race_id)
 
@@ -3763,7 +3901,8 @@ func _energy_panel() -> VBoxContainer:
 	var nb := _big(str(left), 44 if big else 38, UIKit.ENERGY if left > 0 else UIKit.MUTED)
 	nb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(nb)
-	var ll := UIKit.label("punti\ndi %d" % cur.energy, 13, UIKit.MUTED)
+	var shn := str(cur.ship.get("name", ""))
+	var ll := UIKit.label("punti\ndi %d" % cur.energy + ("   «%s»" % shn if shn != "" and shn != "Di serie" else ""), 13, UIKit.MUTED)
 	ll.autowrap_mode = TextServer.AUTOWRAP_OFF
 	ll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ll.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -3785,12 +3924,18 @@ func _energy_panel() -> VBoxContainer:
 		grp.add_theme_constant_override("separation", 4)
 		if not low:
 			grp.add_child(_gadget_img("cat_" + cat.to_lower(), 30 if big else 24))
+		var nk := 0
 		for k in SledGame.GADGET_ORDER:
-			if String(SledGame.GADGETS[k][1]) != cat:
+			if String(SledGame.GADGETS[k][1]) != cat or not cur.mounted.has(k):
 				continue
+			nk += 1
 			grp.add_child(_gadget_row(k, left, big))
 			if k == "sn" and SledGame.level(en_draft, "sn") > 0:
 				grp.add_child(_sniper_targets(big))
+		if nk == 0:
+			var nl := UIKit.label("Nessun gadget montato", 14, UIKit.MUTED)
+			nl.autowrap_mode = TextServer.AUTOWRAP_OFF
+			grp.add_child(nl)
 		var gp := PanelContainer.new()
 		var gcol: Color = [Color("ff6a5a"), Color("4fb8ff"), Color("6fe3c8")][ci]
 		gp.add_theme_stylebox_override("panel", UIKit.box(Color(gcol, 0.06), 10, Color(gcol, 0.35), 1, 6))

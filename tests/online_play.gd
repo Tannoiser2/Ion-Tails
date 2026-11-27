@@ -30,6 +30,9 @@ func _run() -> void:
 		# Rosso (host), Blu fuori gara, Giallo (ospite), Verde CPU: i posti seguono i colori
 		main.setup_on = [true, false, true, true, false]
 		main.setup_ai = [false, true, false, true, true]
+		if OS.get_environment("ST_SHIPS") == "1":
+			main.setup_ship[0] = ShipBuild.sanitize(ShipBuild.PRESETS[2])   # host: Fortezza
+			main.setup_ship[3] = ShipBuild.sanitize(ShipBuild.PRESETS[1])   # CPU: Predatore
 		await main._online_create()
 		var code: String = main.online.get("code", "")
 		print("STTEST stanza ", code)
@@ -50,6 +53,8 @@ func _run() -> void:
 				code = FileAccess.get_file_as_string(cf).strip_edges()
 			await _wait(0.3)
 		main._on_code.text = code
+		if OS.get_environment("ST_SHIPS") == "1":
+			main._phone_ship = ShipBuild.sanitize(ShipBuild.PRESETS[3])      # ospite: Sprinter
 		await main._online_join()
 		print("STTEST entrato ", main.online)
 	# gioca: quando tocca alla "persona" di questo dispositivo, decide la CPU
@@ -89,6 +94,6 @@ func _run() -> void:
 	await _wait(0.5)
 	var fp := []
 	for p in main.game.players:
-		fp.append("%s:%d:%d:%s:%d:%s:e%d" % [p.name, p.cell, p.dents, p.wrecked, p.finish_round, str(p.hand), p.energy])
+		fp.append("%s:%s:%d:%d:%s:%d:%s:e%d" % [p.name, p.ship.get("name", ""), p.cell, p.dents, p.wrecked, p.finish_round, str(p.hand), p.energy])
 	print("STTEST impronta ", main.online.get("n"), " giri ", main.game.round_n, " mine ", str(main.game.mines), " | ", " | ".join(fp))
 	quit(0)

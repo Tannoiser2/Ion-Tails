@@ -698,6 +698,31 @@
             ".validate": "!newData.exists() || (newData.hasChild('name') && newData.child('name').isString() && newData.child('name').val().length <= 80 && (newData.child('deleted').val() === true || (newData.child('def').isString() && newData.child('def').val().length < 200000)))"
           }
         }
+      },
+      "ships": {
+        ".read": "auth != null",
+        "$id": {
+          ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid)",
+          ".validate": "$id.length >= 8 && $id.length <= 32 && newData.hasChildren(['uid', 'name', 'cfg', 'ts']) && newData.child('uid').val() === auth.uid && newData.child('name').isString() && newData.child('name').val().length <= 24 && newData.child('cfg').isString() && newData.child('cfg').val().length < 2000 && newData.child('ts').isNumber()",
+          "author": {
+            ".validate": "newData.isString() && newData.val().length <= 24"
+          },
+          "uid": {
+            ".validate": true
+          },
+          "name": {
+            ".validate": true
+          },
+          "cfg": {
+            ".validate": true
+          },
+          "ts": {
+            ".validate": true
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
       }
     }
   }

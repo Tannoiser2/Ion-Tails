@@ -214,7 +214,7 @@ func db_delete(path: String) -> Dictionary:
 ## Crea una stanza con un codice di 4 lettere. seats: indici delle squadre dei giocatori;
 ## l'host occupa il primo, tranne lo schermo condiviso (table) che non gioca e lascia liberi tutti i posti.
 ## Restituisce il codice, oppure "" se non ci riesce.
-func create_room(player: String, seats: Array, table := false) -> String:
+func create_room(player: String, seats: Array, table := false, ship := "") -> String:
 	last_error = ""
 	if not await sign_in():
 		return ""
@@ -229,7 +229,7 @@ func create_room(player: String, seats: Array, table := false) -> String:
 			continue
 		var body := {"host": uid, "created": {".sv": "timestamp"}, "status": "lobby", "open": seats}
 		if not table:
-			body["seats/%d" % seats[0]] = {"uid": uid, "name": player}
+			body["seats/%d" % seats[0]] = {"uid": uid, "name": player, "ship": ship}
 		var r := await db_patch(ROOT + "/" + code, body)
 		if r["code"] == 200:
 			return code
@@ -240,7 +240,7 @@ func create_room(player: String, seats: Array, table := false) -> String:
 ## Chi aveva già un posto lo ritrova, anche a corsa iniziata: last_room tiene la stanza letta.
 ## -3: è lo schermo condiviso che ha creato la stanza (senza posto) e la riapre.
 ## want: posto preferito (colore), se libero.
-func join_room(code: String, player: String, want := -1) -> int:
+func join_room(code: String, player: String, want := -1, ship := "") -> int:
 	last_error = ""
 	if not await sign_in():
 		return -2
@@ -272,10 +272,15 @@ func join_room(code: String, player: String, want := -1) -> int:
 		order.push_front(want)
 	for idx in order:
 		if not seats.has(str(int(idx))):
-			var w := await db_put((ROOT + "/%s/seats/%d") % [code, int(idx)], {"uid": uid, "name": player})
+			var w := await db_put((ROOT + "/%s/seats/%d") % [code, int(idx)], {"uid": uid, "name": player, "ship": ship})
 			if w["code"] == 200:
 				return int(idx)
 	return -1
+
+## La navetta dell'officina scelta per il proprio posto (JSON), finché si è nella sala d'attesa.
+func set_seat_ship(code: String, idx: int, ship: String) -> bool:
+	var r := await db_put((ROOT + "/%s/seats/%d/ship") % [code, idx], ship)
+	return r["code"] == 200
 
 func room(code: String) -> Dictionary:
 	var r := await db_get(ROOT + "/" + code)

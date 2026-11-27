@@ -45,11 +45,22 @@ func _init(team: Color, w := 220, h := 62, seat := -1) -> void:
 ## Inquadra tutta la muta qualunque sia la forma del riquadro (stretto su iPad in verticale).
 const FIT_W := 0.85    # larghezza della muta (navetta + motori) con un po' di margine
 const FIT_H := 0.40    # altezza, conducente compreso
+var fit_mul := 1.0      # > 1: più margine attorno (anteprima che ruota)
 func _fit() -> void:
 	var asp: float = max(size.x, 1.0) / max(size.y, 1.0) if size.y > 0 else custom_minimum_size.x / custom_minimum_size.y
-	var h: float = max(FIT_H, FIT_W / asp)
+	var h: float = max(FIT_H, FIT_W / asp) * fit_mul
 	var d := 1.49
 	_cam.fov = rad_to_deg(2.0 * atan(h * 0.5 / d))
+
+## Rotazione lenta (officina): radianti al secondo, 0 = ferma di profilo.
+var spin := 0.0
+func _process(delta: float) -> void:
+	if spin != 0.0 and model:
+		model.rotation.y += spin * delta
+	if fit_mul != _fit_done:
+		_fit_done = fit_mul
+		_fit()
+var _fit_done := 1.0
 
 ## Fuori gara: ferma e sbiadita.
 func set_active(on: bool) -> void:

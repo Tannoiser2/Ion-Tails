@@ -34,6 +34,10 @@ func _run() -> void:
 	if idx >= 0: main.course_idx = idx
 	main.setup_on = [true, true, true, true, true]
 	main.setup_ai = [false, true, true, true, true]
+	if OS.get_environment("ST_SHIP0") != "":
+		var c := ShipBuild.sanitize(ShipBuild.PRESETS[int(OS.get_environment("ST_SHIP0"))])
+		c["name"] = "Falco del deserto"
+		main.setup_ship[0] = c
 	main.start_game()
 	await until(["slots"])
 	await wait(0.6)

@@ -70,6 +70,14 @@ def firebase_json(v):
 def allowed(uid, path, new, new_host=None):
     """Regole semplificate. path: lista di segmenti. new_host: host scritto nello stesso aggiornamento
     (come newData.parent() nelle regole vere)."""
+    if path[:2] == ["iontails", "ships"]:
+        # galleria delle navette: una per volta, solo chi l'ha pubblicata la cambia o la toglie
+        if len(path) != 3:
+            return False
+        cur = get_node(path)
+        if cur is not None and cur.get("uid") != uid:
+            return False
+        return new is None or (isinstance(new, dict) and new.get("uid") == uid)
     if path[:2] == ["iontails", "library"]:
         # libreria delle piste: chiunque sia autenticato scrive una pista per volta
         return len(path) == 4 and len(path[2]) >= 16

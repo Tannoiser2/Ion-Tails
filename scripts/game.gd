@@ -35,6 +35,13 @@ class Player:
 	var al := {}               # punti investiti nel turno: chiave di GADGETS -> livello; "snt" = bersaglio del cecchino
 	var spent := 0             # punti spesi in tutta la gara (statistica)
 	var invis_until := 0       # invisibile fino a questo turno compreso (0 = mai)
+	# --- Ion Tails: navetta costruita in officina ---
+	var ship := {}             # configurazione (ShipBuild)
+	var model := -1            # modello 3D (0-4; -1 = quello del colore)
+	var max_dents := 4         # danni che regge: uno in più la distrugge
+	var hand_max := 5          # carte in mano (danni compresi)
+	var curve_mod := 0         # modifica al limite delle curve
+	var mounted: Array = []    # gadget montati
 
 var course: Course
 var players: Array = []
@@ -99,7 +106,7 @@ func shuffle(a: Array) -> void:
 		a[j] = t
 
 ## seed_value 0 = partita qualunque; online tutti usano il seme scelto da chi ha creato la stanza.
-func setup(c: Course, ai_flags: Array, seed_value := 0) -> void:
+func setup(c: Course, ai_flags: Array, seed_value := 0, ships := {}) -> void:
 	if seed_value != 0:
 		rng.seed = seed_value
 	else:
@@ -117,7 +124,8 @@ func setup(c: Course, ai_flags: Array, seed_value := 0) -> void:
 		p.name = NAMES[i]
 		p.color = COLORS[i]
 		p.ai = bool(f)
-		p.deck = make_deck()
+		apply_ship(p, ships.get(str(i), ships.get(i, {})))
+		p.deck = make_deck(ShipBuild.deck_counts(p.ship))
 		players.append(p)
 	round_n = 1
 	over = false
@@ -136,12 +144,22 @@ func setup(c: Course, ai_flags: Array, seed_value := 0) -> void:
 	smoke = {}
 	budget = budget_for(c)
 	for p in players:
-		p.energy = budget
+		p.energy = clampi(budget + ShipBuild.battery(p.ship), 0, BUDGET_MAX + 3)
 
-func make_deck() -> Array:
+## La navetta dell'officina (configurazione già controllata o da controllare).
+func apply_ship(p: Player, cfg) -> void:
+	var c: Dictionary = ShipBuild.sanitize(cfg) if cfg is Dictionary else ShipBuild.standard()
+	p.ship = c
+	p.model = int(c.get("model", -1))
+	p.max_dents = ShipBuild.max_dents(c)
+	p.hand_max = ShipBuild.hand_max(c)
+	p.curve_mod = ShipBuild.curve_mod(c)
+	p.mounted = (c.get("g", []) as Array).duplicate()
+
+func make_deck(counts: Array = [4, 4, 4, 4, 4]) -> Array:
 	var d := []
 	for v in range(1, 6):
-		for k in 4:
+		for k in int(counts[v - 1]):
 			d.append(v)
 	shuffle(d)
 	return d
@@ -151,6 +169,10 @@ func cell(id: int) -> Dictionary:
 
 func hand_size(p: Player) -> int:
 	return p.hand.size() + p.dents
+
+## Troppe carte in mano (danni compresi): bisogna scartare.
+func over_hand(p: Player) -> int:
+	return max(0, hand_size(p) - p.hand_max)
 
 # ---------- partenza ----------
 func free_slots() -> Array:
@@ -172,9 +194,9 @@ func deal_all() -> void:
 	for p in players:
 		start_record[p.id] = p.cell
 	for p in players:
-		var n := 5
-		if p.slot == 3: n = 6
-		if p.slot == 4: n = 7
+		var n: int = p.hand_max
+		if p.slot == 3: n += 1
+		if p.slot == 4: n += 2
 		for k in n:
 			p.hand.append(p.deck.pop_back())
 		p.hand.sort()
@@ -206,7 +228,7 @@ func is_finished(p: Player) -> bool:
 # ---------- carte ----------
 func add_dent(p: Player, n: int) -> void:
 	for i in n:
-		if p.dents >= 4:
+		if p.dents >= p.max_dents:
 			if is_finished(p):
 				continue
 			p.wrecked = true
@@ -223,7 +245,7 @@ func add_half_dent(p: Player) -> void:
 		p.half = true
 
 func draw_up(p: Player) -> void:
-	while hand_size(p) < 5:
+	while hand_size(p) < p.hand_max:
 		if p.deck.is_empty():
 			p.deck = p.discard + p.used
 			p.discard = []
@@ -319,6 +341,7 @@ func compute_outs(p: Player, m: Dictionary, all_paths := false) -> Array:
 			occ[q.cell] = true
 	var res := []
 	var up0: bool = course.slope_of(p.cell) == "up"
+	_curve_mod = p.curve_mod
 	_dfs(p.cell, speed, k, dir, speed, occ, [], 0, res, 0, [], up0, "")
 	if drift == 0 and m["L"] == m["R"] and p.moves > 0:
 		var b := rank_of(p)
@@ -349,6 +372,8 @@ func compute_outs(p: Player, m: Dictionary, all_paths := false) -> Array:
 		if not best.has(r["end"]) or sc < best[r["end"]]["_sc"]:
 			best[r["end"]] = r
 	return best.values()
+
+var _curve_mod := 0        # limite delle curve della navetta che si sta calcolando
 
 func _out(path: Array, end: int, crash: String, cd: int, total: int, bonus_n: int, sap: Array) -> Dictionary:
 	return {"path": path, "end": end, "crash": crash, "corner_dents": cd, "sap": sap,
@@ -397,7 +422,7 @@ func _dfs(cur: int, steps: int, drifts: int, dir: int, total: int, occ: Dictiona
 				r3["stopped"] = "fresh"
 				res.append(r3)
 				continue
-			var cd2: int = cd + course.limit_dents(c["piece"], cell(t)["piece"], total) + course.leap_dents(cur, t, total)
+			var cd2: int = cd + course.limit_dents(c["piece"], cell(t)["piece"], total - _curve_mod) + course.leap_dents(cur, t, total)
 			var p2 := path.duplicate()
 			p2.append(t)
 			var s2 := sap
@@ -491,7 +516,7 @@ func resolve_simultaneous(progs: Dictionary) -> Array:
 		var cd := 0
 		var prev: int = p.cell
 		for t in path:
-			cd += course.limit_dents(cell(prev)["piece"], cell(t)["piece"], total) + course.leap_dents(prev, t, total)
+			cd += course.limit_dents(cell(prev)["piece"], cell(t)["piece"], total - p.curve_mod) + course.leap_dents(prev, t, total)
 			prev = t
 		o_use["end"] = p.cell if path.is_empty() else path[path.size() - 1]
 		o_use["from"] = p.cell
@@ -684,7 +709,7 @@ func after_move(p: Player, o: Dictionary) -> bool:
 		log_text += " — si ripara all'officina (metà dei danni, non pesca)"
 	if o["crash"] != "sled" and not in_crev and not repaired:
 		draw_up(p)
-	if hand_size(p) > 5 and not p.hand.is_empty():
+	if over_hand(p) > 0 and not p.hand.is_empty():
 		if p.ai:
 			ai_discard(p)
 		else:
@@ -825,7 +850,7 @@ func _ai_next_turn(p: Player, c: Dictionary) -> float:
 			for o2 in compute_outs(p, mat_after(p, pend)):
 				var sc := float(from_togo - int(cell(o2["end"])["togo"])) * 10.0
 				sc -= float(o2["dents"]) * (22.0 + p.dents * 14.0)
-				if p.dents + int(o2["dents"]) >= 5:
+				if p.dents + int(o2["dents"]) > p.max_dents:
 					sc -= 300.0
 				if sc > best:
 					best = sc
@@ -849,7 +874,7 @@ func ai_score(p: Player, m: Dictionary, o: Dictionary, n_cards: int) -> float:
 	if fin:
 		# oltre il traguardo conta andare il più lontano possibile (spareggio nello stesso giro)
 		s += 300.0 + (float(en["s"]) - course.finish_s) / cl * 25.0
-	if p.dents + int(o["dents"]) >= 5 and not fin:
+	if p.dents + int(o["dents"]) > p.max_dents and not fin:
 		return -500.0 + s
 	s -= float(o["dents"] + int(o.get("km", 0))) * (22.0 + p.dents * 14.0)
 	if o["crash"] == "sled" or course.crevasse.has(int(o["end"])):
@@ -866,8 +891,9 @@ func ai_score(p: Player, m: Dictionary, o: Dictionary, n_cards: int) -> float:
 	var nl := course.next_limit(float(en["s"]))
 	if not nl.is_empty():
 		var dist: float = (float(nl["s"]) - float(en["s"])) / cl
-		if S2 > int(nl["lim"]) and dist <= S2 + 2:
-			s -= (S2 - int(nl["lim"])) * (14.0 if dist <= S2 else 6.0)
+		var lim2: int = int(nl["lim"]) + p.curve_mod
+		if S2 > lim2 and dist <= S2 + 2:
+			s -= (S2 - lim2) * (14.0 if dist <= S2 else 6.0)
 	var lp := course.next_leap(float(en["s"]))
 	if not lp.is_empty():
 		var dl: float = (float(lp["s"]) - float(en["s"])) / cl
@@ -951,7 +977,7 @@ func ai_discard(p: Player) -> void:
 func ai_discard_values(p: Player) -> Array:
 	var hand: Array = p.hand.duplicate()
 	var out := []
-	while hand.size() + p.dents > 5 and not hand.is_empty():
+	while hand.size() + p.dents > p.hand_max and not hand.is_empty():
 		var counts := {}
 		for v in hand:
 			counts[v] = counts.get(v, 0) + 1
@@ -1007,6 +1033,9 @@ func player_by_id(id: int) -> Player:
 func alloc_ok(p: Player, a: Dictionary) -> bool:
 	if alloc_cost(a) > p.energy:
 		return false
+	for k in GADGET_ORDER:
+		if level(a, k) > 0 and not p.mounted.has(k):
+			return false
 	if level(a, "sn") > 0:
 		var q := player_by_id(int(a.get("snt", -1)))
 		if q == null or q == p or not racing(q):
@@ -1018,7 +1047,7 @@ func apply_alloc(p: Player, a: Dictionary) -> void:
 	var clean := {}
 	for k in GADGET_ORDER:
 		var lv := level(a, k)
-		if lv > 0:
+		if lv > 0 and p.mounted.has(k):
 			clean[k] = lv
 	if clean.has("sn"):
 		clean["snt"] = int(a.get("snt", -1))
@@ -1506,6 +1535,7 @@ func ai_alloc(p: Player) -> Dictionary:
 	# scelta: i più utili prima, con un po' di imprevedibilità
 	for o in opts:
 		o[1] = float(o[1]) * randf_range(0.75, 1.25)
+	opts = opts.filter(func(x): return p.mounted.has(String(x[0])))
 	opts.sort_custom(func(x, y): return float(x[1]) > float(y[1]))
 	var left := budget_now
 	for o in opts:
