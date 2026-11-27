@@ -17,6 +17,11 @@ var modal_root: Control
 var top_panel: Control
 var bottom_panel: Control
 var layout_mode := ""
+## Telefono in verticale: due schede, «nave» (navetta, carte, gadget) e «pista».
+var tab_row: HBoxContainer
+var tab_btns := {}
+var port_tab := "pista"
+var _tab_phase := ""
 var portrait_box: VBoxContainer
 var portrait_spacer: Control
 var land_box: HBoxContainer
@@ -137,15 +142,36 @@ func _build_hud() -> void:
 	top_panel = top
 	vb.add_child(top)
 	var tv := VBoxContainer.new()
-	tv.add_theme_constant_override("separation", 6)
+	tv.add_theme_constant_override("separation", 4)
 	top.add_child(tv)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
+	row.add_theme_constant_override("separation", 5)
 	tv.add_child(row)
-	top_round = UIKit.label("", 18, UIKit.MUTED)
+	top_round = UIKit.label("", 15, UIKit.INK)
+	top_round.autowrap_mode = TextServer.AUTOWRAP_OFF
+	top_round.clip_text = true
+	top_round.custom_minimum_size = Vector2(80, 0)
+	top_round.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_round.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	# schede del telefono in verticale: la navetta con le carte, oppure la pista
+	tab_row = HBoxContainer.new()
+	tab_row.add_theme_constant_override("separation", 4)
+	tv.add_child(tab_row)
+	for tb in [["nave", "Navetta e carte"], ["pista", "Pista"]]:
+		var b := UIKit.button(tb[1])
+		b.custom_minimum_size = Vector2(0, 40)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", 17)
+		var key: String = tb[0]
+		b.pressed.connect(func():
+			port_tab = key
+			_apply_tab())
+		tab_row.add_child(b)
+		tab_btns[key] = b
 	var bv := UIKit.button("Segui")
-	bv.custom_minimum_size = Vector2(0, 38)
-	bv.add_theme_font_size_override("font_size", 17)
+	bv.custom_minimum_size = Vector2(0, 32)
+	bv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bv.add_theme_font_size_override("font_size", 15)
 	bv.toggle_mode = true
 	bv.button_pressed = true
 	bv.toggled.connect(func(on):
@@ -161,13 +187,15 @@ func _build_hud() -> void:
 	board.follow_changed.connect(func(on): bv.set_pressed_no_signal(on))
 	row.add_child(bv)
 	var bh := UIKit.button("Regole")
-	bh.custom_minimum_size = Vector2(0, 38)
-	bh.add_theme_font_size_override("font_size", 17)
+	bh.custom_minimum_size = Vector2(0, 32)
+	bh.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bh.add_theme_font_size_override("font_size", 15)
 	bh.pressed.connect(show_help.bind(false))
 	row.add_child(bh)
 	var bm := UIKit.button("Menu")
-	bm.custom_minimum_size = Vector2(0, 38)
-	bm.add_theme_font_size_override("font_size", 17)
+	bm.custom_minimum_size = Vector2(0, 32)
+	bm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bm.add_theme_font_size_override("font_size", 15)
 	bm.pressed.connect(show_menu)
 	row.add_child(bm)
 	status_box = VBoxContainer.new()
@@ -238,7 +266,7 @@ func _apply_layout() -> void:
 	var land := _is_landscape()
 	var want := "land" if land else "port"
 	var sz := get_viewport().get_visible_rect().size
-	side_panel.custom_minimum_size = Vector2(clamp(sz.x * 0.3, 340.0, 460.0), 0)
+	_side_width()
 	if want == layout_mode:
 		return
 	layout_mode = want
@@ -256,6 +284,7 @@ func _apply_layout() -> void:
 		(bottom_panel as PanelContainer).add_theme_stylebox_override("panel", UIKit.box(Color(1, 1, 1, 0), 0, Color(0, 0, 0, 0), 0, 6))
 		portrait_box.visible = false
 		land_box.visible = true
+		tab_row.visible = false
 	else:
 		top_panel.size_flags_horizontal = Control.SIZE_FILL
 		top_panel.custom_minimum_size = Vector2.ZERO
@@ -268,6 +297,8 @@ func _apply_layout() -> void:
 		(bottom_panel as PanelContainer).add_theme_stylebox_override("panel", UIKit.box(Color(UIKit.PANEL, 0.98), 26, Color(0, 0, 0, 0), 0, 18))
 		land_box.visible = false
 		portrait_box.visible = true
+		tab_row.visible = true
+	_apply_tab()
 	if modal_root and (phase == "menu" or game == null):
 		_close_modal()
 		show_menu.call_deferred()
@@ -2575,6 +2606,14 @@ func _sim_away(p, t0: int, seen: Dictionary) -> bool:
 # ======================= RENDER =======================
 func _refresh() -> void:
 	board.current_id = cur.id if cur != null and phase != "over" else -1
+	# in verticale la scheda giusta si apre da sola quando cambia la fase
+	if phase != _tab_phase:
+		_tab_phase = phase
+		_side_width()
+		var want := "nave" if phase in ["energy", "cards", "discard"] else "pista"
+		if want != port_tab:
+			port_tab = want
+			_apply_tab()
 	_sync_gadget_view()
 	board.preview = []
 	var sig := ""
@@ -2612,21 +2651,20 @@ func _process(_d: float) -> void:
 func _render_top() -> void:
 	if game == null or status_box == null:
 		return
+	if top_round.get_parent():
+		top_round.get_parent().remove_child(top_round)
 	UIKit.clear(status_box)
-	# 1. giro e turno
-	var head := HBoxContainer.new()
-	head.add_theme_constant_override("separation", 8)
-	var rnd := UIKit.label("Schieramento" if phase.begins_with("slots") else ("Replay %d/%d" % [replay_round, game.history.size()] if phase == "replay" else "Turno %d" % game.round_n), 16, UIKit.INK)
-	rnd.autowrap_mode = TextServer.AUTOWRAP_OFF
-	head.add_child(rnd)
+	status_box.add_child(top_round)
+	# 1. turno e chi gioca
+	var rt := "Schieramento" if phase.begins_with("slots") else ("Replay %d/%d" % [replay_round, game.history.size()] if phase == "replay" else "Turno %d" % game.round_n)
 	if cur != null and phase != "over" and phase != "replay":
-		var who := UIKit.label("·  tocca a %s%s" % [cur.name, " (tu)" if _is_mine(cur) else ""], 16, cur.color.lightened(0.25))
-		who.autowrap_mode = TextServer.AUTOWRAP_OFF
-		head.add_child(who)
-	status_box.add_child(head)
+		rt += "  ·  %s%s" % [cur.name, " (tu)" if _is_mine(cur) else ""]
+	top_round.text = rt
+	top_round.add_theme_color_override("font_color", cur.color.lightened(0.3) if cur != null and phase not in ["over", "replay"] else UIKit.INK)
 	# 2. posizioni in gara
-	var flow := HBoxContainer.new()
-	flow.add_theme_constant_override("separation", 3)
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 3)
+	flow.add_theme_constant_override("v_separation", 3)
 	var order := game.race_order()
 	var all := order.duplicate()
 	for p in game.players:
@@ -2635,33 +2673,35 @@ func _render_top() -> void:
 	for p in all:
 		var pc := PanelContainer.new()
 		var border: Color = p.color if (cur != null and p == cur and phase != "over") else Color(0, 0, 0, 0)
-		pc.add_theme_stylebox_override("panel", UIKit.box(UIKit.SOFT, 9, border, 2, 3))
-		pc.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		pc.add_theme_stylebox_override("panel", UIKit.box(UIKit.SOFT, 8, border, 2, 2))
 		var t: String = ("KO " if p.wrecked else str(order.find(p) + 1) + " ") + p.name
 		if game.invisible(p) and _viewer() != p and phase != "replay" and phase != "over":
-			t = "? " + p.name + "  invisibile"
+			t = "? " + p.name + " invisibile"
 		elif p.dents > 0:
-			t += "  D%d" % p.dents
+			t += " D%d" % p.dents
 		if p.half:
-			t += "½" if p.dents > 0 else "  D½"
+			t += "½" if p.dents > 0 else " D½"
 		if game.is_finished(p):
-			t += "  fine"
-		var l := UIKit.label(t, 13, p.color.lightened(0.3))
+			t += " fine"
+		var l := UIKit.label(t, 12, p.color.lightened(0.3))
 		l.autowrap_mode = TextServer.AUTOWRAP_OFF
 		pc.add_child(l)
 		flow.add_child(pc)
 	status_box.add_child(flow)
-	# 3. numeri della navetta di turno (con le carte in attesa di conferma)
-	if cur != null and not cur.wrecked and cur.cell >= 0 and phase not in ["over", "replay", "slots", "slotsAI", "energy", "energyAI", "reveal"]:
-		status_box.add_child(_stat_grid())
-	# 4. che cosa fare adesso e ultima mossa: spazio fisso, così sotto non si muove niente
 	if phase == "energy":
 		return    # il pannello dei gadget ha bisogno di tutto lo spazio
-	status_box.add_child(_fixed_box(_action_text(), Color("123447"), UIKit.INK, 13))
-	status_box.add_child(_fixed_box(game.log_text, UIKit.SOFT, UIKit.MUTED, 12))
+	# 3. numeri della navetta di turno, in una sola riga
+	if cur != null and not cur.wrecked and cur.cell >= 0 and phase not in ["over", "replay", "slots", "slotsAI", "energyAI", "reveal"]:
+		status_box.add_child(_stat_grid())
+	# 4. che cosa fare e ultima mossa in un solo riquadro di altezza fissa
+	var at := _action_text()
+	var msg := at
+	if game.log_text != "":
+		msg = (at + "\n" if at != "" else "") + "[color=#94a9c0]" + game.log_text + "[/color]"
+	status_box.add_child(_fixed_box(msg, Color("123447"), UIKit.INK, 12, 3.9))
 
 ## Riquadro di testo ad altezza fissa (due righe): il contenuto cambia, l'ingombro no.
-func _fixed_box(text: String, bg: Color, col: Color, fsize: int) -> PanelContainer:
+func _fixed_box(text: String, bg: Color, col: Color, fsize: int, lines := 2.6) -> PanelContainer:
 	var pc := PanelContainer.new()
 	pc.add_theme_stylebox_override("panel", UIKit.box(bg if text != "" else Color(bg, 0.45), 8, Color(0, 0, 0, 0), 0, 5))
 	var r := RichTextLabel.new()
@@ -2670,7 +2710,7 @@ func _fixed_box(text: String, bg: Color, col: Color, fsize: int) -> PanelContain
 	r.scroll_active = false
 	r.clip_contents = true
 	r.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	r.custom_minimum_size = Vector2(0, int(fsize * 2.6))
+	r.custom_minimum_size = Vector2(0, int(fsize * lines))
 	r.add_theme_font_size_override("normal_font_size", fsize)
 	r.add_theme_font_size_override("bold_font_size", fsize)
 	r.add_theme_color_override("default_color", col)
@@ -2686,10 +2726,11 @@ func _tile(title: String, value: String, warn := false) -> PanelContainer:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", -4)
 	pc.add_child(v)
-	var t := UIKit.label(title, 12, UIKit.MUTED)
+	var t := UIKit.label(title, 11, UIKit.MUTED)
 	t.autowrap_mode = TextServer.AUTOWRAP_OFF
+	t.clip_text = true
 	v.add_child(t)
-	var val := _big(value, 26, UIKit.DANGER if warn else UIKit.INK)
+	var val := _big(value, 20, UIKit.DANGER if warn else UIKit.INK)
 	v.add_child(val)
 	return pc
 
@@ -2725,15 +2766,9 @@ func _stat_grid() -> Control:
 	var d: int = game.effective_drift(cur.cell, m)
 	var c: Dictionary = course.cells[cur.cell]
 	var outer := HBoxContainer.new()
-	outer.add_theme_constant_override("separation", 5)
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 5)
-	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	outer.add_child(col)
-	# 1. velocità, deriva, bonus
-	var top := HBoxContainer.new()
-	top.add_theme_constant_override("separation", 5)
-	col.add_child(top)
+	outer.add_theme_constant_override("separation", 4)
+	# tutto in una riga: velocità, deriva, bonus, che cosa c'è davanti, percorsi
+	var top := outer
 	var sl := course.slope_of(cur.cell)
 	var why := []
 	if sl != "":
@@ -2769,16 +2804,19 @@ func _stat_grid() -> Control:
 				"windF": ["Tempesta a favore: +%d velocità" % wf], "windC": ["Tempesta contraria: −%d velocità" % wf], "ice": ["Vetro: si scivola"],
 				"fresh": ["Sabbia: costa 2"], "hut": ["Officina: ripara metà"], "fork": ["Bivio: scegli il ramo"]}.get(ft, [ft])
 			rows.append([it[0], when, false])
-	for r in rows.slice(0, 2):
-		col.add_child(_info_row(r[0], r[1], r[2]))
+	if not rows.is_empty():
+		var r0: Array = rows[0]
+		var tl := _tile(String(r0[0]).replace("Curva, limite", "Curva"), String(r0[1]).replace("fra ", ""), r0[2])
+		tl.tooltip_text = "%s, %s" % [r0[0], r0[1]]
+		top.add_child(tl)
 	if _is_mine(cur):
 		var tb := Button.new()
 		tb.toggle_mode = true
 		tb.button_pressed = show_paths
-		tb.text = "Percorsi\n%s" % ("sì" if show_paths else "no")
+		tb.text = "Percorsi"
 		tb.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		tb.add_theme_font_size_override("font_size", 13)
-		tb.custom_minimum_size = Vector2(78, 0)
+		tb.add_theme_font_size_override("font_size", 12)
+		tb.custom_minimum_size = Vector2(64, 0)
 		var on_col: Color = cur.color
 		UIKit.style_button(tb, on_col if show_paths else UIKit.SOFT, Color.WHITE if show_paths else UIKit.INK, on_col, 2, 10)
 		tb.tooltip_text = "Mostra sulla pista tutti i percorsi possibili con le carte messe sulla plancia"
@@ -2889,6 +2927,15 @@ func _render_bottom() -> void:
 			b.pressed.connect(_show_results)
 			bottom_box.add_child(b)
 			return
+	# telefono in verticale, scheda «pista»: sotto restano solo i comandi che servono sulla pista
+	if layout_mode != "land" and port_tab == "pista":
+		if phase == "dest":
+			var bc := UIKit.button("Cambia carte")
+			bc.custom_minimum_size = Vector2(0, 48)
+			bc.add_theme_font_size_override("font_size", 18)
+			bc.pressed.connect(_back_to_cards)
+			bottom_box.add_child(bc)
+		return
 	if phase == "energy" and cur != null:
 		bottom_box.add_child(_energy_panel())
 		return
@@ -2972,8 +3019,9 @@ func _mat(_m: Dictionary, interactive: bool) -> MatView:
 	if phase == "cards" or phase == "dest":
 		for x in pending:
 			pend.append({"slot": x["slot"], "v": x["v"]})
-	mv.custom_minimum_size = Vector2(0, 70 if layout_mode == "land" else 210)
-	mv.size_flags_vertical = Control.SIZE_EXPAND_FILL if layout_mode == "land" else Control.SIZE_FILL
+	var nave: bool = layout_mode != "land" and port_tab == "nave"
+	mv.custom_minimum_size = Vector2(0, 70 if layout_mode == "land" else (get_viewport().get_visible_rect().size.y * 0.42 if nave else 210))
+	mv.size_flags_vertical = Control.SIZE_EXPAND_FILL if (layout_mode == "land" or nave) else Control.SIZE_FILL
 	mv.slot_tapped.connect(_tap_slot)
 	mv.setup.call_deferred(cur, pend, interactive, interactive and sel >= 0)
 	return mv
@@ -3053,6 +3101,10 @@ func _hand(p, interactive: bool, small := false) -> ScrollContainer:
 		var colw: float = side_panel.custom_minimum_size.x - 30.0
 		var cw: float = clamp((colw - 5.0) / 6.0, 50.0, 96.0)
 		csz = Vector2(cw, cw * 1.6)
+	elif not land and not small and port_tab == "nave":
+		# scheda «navetta e carte» del telefono: carte grandi, a tutta larghezza
+		var cw2: float = clamp((get_viewport().get_visible_rect().size.x - 60.0) / 6.0, 60.0, 150.0)
+		csz = Vector2(cw2, cw2 * 1.6)
 	sc.custom_minimum_size = Vector2(0, csz.y + 4)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 1 if land else 6)
@@ -3680,96 +3732,124 @@ func _online_begin(g: Dictionary, rejoin: bool) -> void:
 
 # ---------- Ion Tails: pannelli dell'energia ----------
 func _energy_panel() -> VBoxContainer:
+	var big: bool = layout_mode != "land"          # telefono in verticale: tasti grandi
+	var low: bool = _is_landscape() and get_viewport().get_visible_rect().size.y < 780
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 3)
+	v.add_theme_constant_override("separation", 4)
 	var cost := SledGame.alloc_cost(en_draft)
 	var left: int = cur.energy - cost
+	# intestazione: punti rimasti in grande e conto alla rovescia
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 10)
-	head.add_child(_gadget_img("punti", 36))
-	var ll := UIKit.label("restano %d di %d" % [left, cur.energy], 15, UIKit.INK)
+	head.add_child(_gadget_img("punti", 40 if big else 34))
+	var nb := _big(str(left), 44 if big else 38, UIKit.ENERGY if left > 0 else UIKit.MUTED)
+	nb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(nb)
+	var ll := UIKit.label("punti\ndi %d" % cur.energy, 13, UIKit.MUTED)
 	ll.autowrap_mode = TextServer.AUTOWRAP_OFF
 	ll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ll.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(ll)
-	_en_clock_lbl = UIKit.label("", 20, UIKit.HEAD)
+	_en_clock_lbl = UIKit.label("", 24, UIKit.HEAD)
 	_en_clock_lbl.add_theme_font_override("font", UIKit.font(UIKit.F_TITLE))
 	_en_clock_lbl.autowrap_mode = TextServer.AUTOWRAP_OFF
-	_en_clock_lbl.custom_minimum_size = Vector2(64, 0)
+	_en_clock_lbl.custom_minimum_size = Vector2(70, 0)
 	_en_clock_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_en_clock_lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	if en_deadline > 0:
 		_en_clock_lbl.text = "%d s" % max(0, int(ceil((en_deadline - Time.get_ticks_msec()) / 1000.0)))
 	head.add_child(_en_clock_lbl)
 	v.add_child(head)
-	# schermi bassi (telefono in orizzontale): via intestazioni e spiegazione, restano i pulsanti
-	var low: bool = _is_landscape() and get_viewport().get_visible_rect().size.y < 780
-	for cat in SledGame.CATEGORIES:
+	# tre gruppi ben separati: attacchi, difese, movimento
+	for ci in SledGame.CATEGORIES.size():
+		var cat: String = SledGame.CATEGORIES[ci]
+		var grp := VBoxContainer.new()
+		grp.add_theme_constant_override("separation", 4)
 		if not low:
-			v.add_child(_gadget_img("cat_" + String(cat).to_lower(), 26))
+			grp.add_child(_gadget_img("cat_" + cat.to_lower(), 30 if big else 24))
 		for k in SledGame.GADGET_ORDER:
 			if String(SledGame.GADGETS[k][1]) != cat:
 				continue
-			v.add_child(_gadget_row(k, left))
+			grp.add_child(_gadget_row(k, left, big))
 			if k == "sn" and SledGame.level(en_draft, "sn") > 0:
-				v.add_child(_sniper_targets())
-	if not low or en_info != "":
-		var info := _fixed_box(en_info if en_info != "" else "Tocca un nome per leggere che cosa fa; 1 o 2 sono i punti (tocca di nuovo per toglierli).", UIKit.SOFT, UIKit.MUTED, 13)
-		v.add_child(info)
+				grp.add_child(_sniper_targets(big))
+		var gp := PanelContainer.new()
+		var gcol: Color = [Color("ff6a5a"), Color("4fb8ff"), Color("6fe3c8")][ci]
+		gp.add_theme_stylebox_override("panel", UIKit.box(Color(gcol, 0.06), 10, Color(gcol, 0.35), 1, 6))
+		gp.add_child(grp)
+		v.add_child(gp)
+		if ci < SledGame.CATEGORIES.size() - 1:
+			var sp := Control.new()
+			sp.custom_minimum_size = Vector2(0, 4 if low else 8)
+			v.add_child(sp)
+	if en_info != "" and not low:
+		v.add_child(_fixed_box(en_info, UIKit.SOFT, UIKit.MUTED, 13))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	var b1 := UIKit.button("Azzera")
-	b1.custom_minimum_size = Vector2(0, 42)
-	b1.add_theme_font_size_override("font_size", 17)
+	b1.custom_minimum_size = Vector2(0, 52 if big else 42)
+	b1.add_theme_font_size_override("font_size", 18)
 	b1.disabled = en_draft.is_empty()
 	b1.pressed.connect(func():
 		en_draft = {}
+		en_info = ""
 		_refresh())
 	row.add_child(b1)
 	var b2 := UIKit.cta("Conferma" if cost > 0 else "Nessun gadget")
-	b2.custom_minimum_size = Vector2(0, 42)
-	b2.add_theme_font_size_override("font_size", 17)
+	b2.custom_minimum_size = Vector2(0, 52 if big else 42)
+	b2.add_theme_font_size_override("font_size", 19)
 	b2.pressed.connect(_energy_confirm)
 	row.add_child(b2)
 	v.add_child(row)
 	return v
 
-## Riga di un gadget: nome (tocca per la spiegazione) e due tasti, 1 e 2 punti. Si accende al
-## massimo uno dei due; toccando quello acceso si spegne (gadget non usato).
-func _gadget_row(k: String, left: int) -> HBoxContainer:
+## Due tasti per gadget: «Cecchino 1» e «Cecchino 2» (il token con il numero dei punti).
+## Se ne accende al massimo uno; toccando quello acceso si spegne (gadget non usato).
+func _gadget_row(k: String, left: int, big := false) -> HBoxContainer:
 	var r := HBoxContainer.new()
-	r.add_theme_constant_override("separation", 4)
-	var cur_on := SledGame.level(en_draft, k) > 0
-	var nb := TextureButton.new()
-	nb.texture_normal = _gadget_tex(k)
-	nb.ignore_texture_size = true
-	nb.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT
-	nb.custom_minimum_size = Vector2(180, 31)
-	nb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	nb.tooltip_text = SledGame.gadget_name(k)
-	# il riquadro si accende quando il gadget è scelto
-	nb.modulate = Color(1, 1, 1, 1) if cur_on else Color(0.62, 0.66, 0.74, 0.9)
-	nb.pressed.connect(func():
-		en_info = "[b]%s[/b]: %s." % [SledGame.gadget_name(k), SledGame.GADGETS[k][2]]
-		_refresh())
-	r.add_child(nb)
+	r.add_theme_constant_override("separation", 6)
 	var cur_lv := SledGame.level(en_draft, k)
 	for lv in range(1, SledGame.max_level(k) + 1):
-		var b := Button.new()
-		b.text = str(lv)
-		b.custom_minimum_size = Vector2(44, 31)
-		b.add_theme_font_size_override("font_size", 16)
-		b.add_theme_font_override("font", UIKit.font(UIKit.F_BOLD))
 		var on := lv == cur_lv
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(140, 50 if big else 38)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.disabled = not on and lv - cur_lv > left
+		b.tooltip_text = "%s %d" % [SledGame.gadget_name(k), lv]
 		if on:
-			UIKit.style_button(b, UIKit.ACCENT, UIKit.ON_ACCENT, UIKit.ACCENT, 2, 8)
+			UIKit.style_button(b, Color(UIKit.ACCENT, 0.35), UIKit.INK, UIKit.ACCENT, 3, 10)
 		else:
-			UIKit.style_button(b, UIKit.SOFT, UIKit.INK, UIKit.LINE, 2, 8)
+			UIKit.style_button(b, UIKit.SOFT, UIKit.INK, UIKit.LINE, 1, 10)
+		var hb := HBoxContainer.new()
+		hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+		hb.add_theme_constant_override("separation", 2)
+		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(hb)
+		var t := TextureRect.new()
+		t.texture = _gadget_tex(k)
+		t.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		t.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		t.modulate = Color(1, 1, 1, 1) if on else (Color(0.5, 0.52, 0.58, 0.6) if b.disabled else Color(0.82, 0.85, 0.9, 1))
+		hb.add_child(t)
+		var n := _big(str(lv), 26 if big else 22, UIKit.ENERGY if on else (UIKit.MUTED if b.disabled else UIKit.INK))
+		n.custom_minimum_size = Vector2(26, 0)
+		n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		n.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		n.size_flags_vertical = Control.SIZE_FILL
+		n.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hb.add_child(n)
+		var mg := Control.new()
+		mg.custom_minimum_size = Vector2(4, 0)
+		mg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hb.add_child(mg)
 		b.pressed.connect(func():
 			if on:
 				en_draft.erase(k)
 				if k == "sn":
 					en_draft.erase("snt")
+				en_info = ""
 			else:
 				en_draft[k] = lv
 				if k == "sn" and not en_draft.has("snt"):
@@ -3777,13 +3857,13 @@ func _gadget_row(k: String, left: int) -> HBoxContainer:
 						if q != cur and not game.invisible(q):
 							en_draft["snt"] = q.id
 							break
-			en_info = "[b]%s[/b]: %s." % [SledGame.gadget_name(k), SledGame.GADGETS[k][2]]
+				en_info = "[b]%s %d[/b]: %s." % [SledGame.gadget_name(k), lv, SledGame.GADGETS[k][2]]
 			_refresh())
 		r.add_child(b)
 	return r
 
 ## Bersaglio del cecchino: un pulsante per navetta in gara.
-func _sniper_targets() -> HFlowContainer:
+func _sniper_targets(big := false) -> HFlowContainer:
 	var fl := HFlowContainer.new()
 	fl.add_theme_constant_override("h_separation", 6)
 	fl.add_theme_constant_override("v_separation", 4)
@@ -3794,8 +3874,8 @@ func _sniper_targets() -> HFlowContainer:
 		var on: bool = q.id == t
 		var b := Button.new()
 		b.text = "su %s" % SledGame.NAMES[q.seat]
-		b.custom_minimum_size = Vector2(70, 25)
-		b.add_theme_font_size_override("font_size", 13)
+		b.custom_minimum_size = Vector2(84 if big else 70, 40 if big else 28)
+		b.add_theme_font_size_override("font_size", 16 if big else 13)
 		b.add_theme_font_override("font", UIKit.font(UIKit.F_BOLD))
 		UIKit.style_button(b, q.color.darkened(0.15) if on else UIKit.SOFT, Color.WHITE if on else UIKit.INK, q.color, 2, 8)
 		var qid: int = q.id
@@ -3928,3 +4008,36 @@ func _reveal_on_start(p) -> void:
 		if not online.get("catchup", false) and not (game.invisible(p) and _viewer() != p):
 			board.popup(board.ship_pos(p.id), "SCUDO ATTIVO", Color("6fe3ff"))
 		board.redraw()
+
+## Mostra la scheda scelta (solo in verticale): «nave» riempie lo schermo con navetta, carte e
+## gadget; «pista» lascia vedere la pista, con sotto solo i comandi che servono lì.
+func _apply_tab() -> void:
+	if tab_row == null or bottom_panel == null:
+		return
+	for k in tab_btns:
+		var b: Button = tab_btns[k]
+		if k == port_tab:
+			UIKit.style_button(b, Color(UIKit.ACCENT, 0.3), UIKit.INK, UIKit.ACCENT, 2, 10)
+		else:
+			UIKit.style_button(b, UIKit.SOFT, UIKit.MUTED, UIKit.LINE, 1, 10)
+	if layout_mode == "land":
+		bottom_panel.visible = true
+		return
+	var nave := port_tab == "nave"
+	portrait_spacer.visible = not nave
+	bottom_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL if nave else Control.SIZE_FILL
+	bottom_box.size_flags_vertical = Control.SIZE_EXPAND_FILL if nave else Control.SIZE_FILL
+	bottom_panel.visible = nave or phase in ["dest", "replay", "over"]
+	if game != null:
+		_render_bottom()
+
+## Larghezza del pannello laterale (in orizzontale): più largo quando si scelgono i gadget,
+## così i token si leggono bene.
+func _side_width() -> void:
+	if side_panel == null:
+		return
+	var sz := get_viewport().get_visible_rect().size
+	var w: float = clamp(sz.x * 0.3, 340.0, 460.0)
+	if phase == "energy":
+		w = clamp(sz.x * 0.45, 420.0, 640.0)
+	side_panel.custom_minimum_size = Vector2(w, 0)
