@@ -24,8 +24,10 @@ func _run() -> void:
 		main.course_idx = main.course_files.find("res://data/courses/bruce.json")
 		main.setup_on = [true, true, true, true, false]
 		main.setup_ai = [false, true, false, true, true]    # Rosso e Giallo ai telefoni, Blu e Verde CPU
+		main.setup_net = ["phone", "", "phone", "", ""]
+		main.show_race_setup()
 		main.sim_variant = OS.get_environment("ST_SIM") == "1"
-		await main._online_create(true)
+		await main._online_create_from_menu()
 		var code: String = main.online.get("code", "")
 		print("STTEST stanza ", code, " seat ", main.online.get("seat"))
 		var f := FileAccess.open(cf, FileAccess.WRITE)

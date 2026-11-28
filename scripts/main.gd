@@ -302,8 +302,9 @@ func _apply_layout() -> void:
 		tab_row.visible = true
 	_apply_tab()
 	if modal_root and (phase == "menu" or game == null):
+		var pg := menu_page
 		_close_modal()
-		show_menu.call_deferred()
+		_reshow.call_deferred(pg)
 
 const COVER := "res://assets/ui/cover.webp"
 
@@ -380,6 +381,7 @@ func _fit_modal() -> void:
 		sc = s2
 
 func _close_modal() -> void:
+	menu_page = ""
 	_modal_panel = null
 	if modal_root:
 		modal_root.queue_free()
@@ -426,7 +428,7 @@ var _menu_start: Button
 var menu_tab := ""             # "list", "editor" o "random"
 var _menu_tab_box: VBoxContainer
 var _menu_tabs: HBoxContainer
-var _menu_sim_row: HBoxContainer
+var _menu_sim_row: VBoxContainer
 var _menu_sim_lbl: Label
 var _menu_thumbs: Array = []
 var tour_mode := false         # «Gran Tour» scelto nella lista
@@ -452,126 +454,435 @@ func _seat_flags() -> Array:
 		out.append(-1 if not setup_on[i] else (1 if setup_ai[i] else 0))
 	return out
 
+## ======================= PAGINE DEL MENU =======================
+## Pagina aperta: "home", "race", "editor", "rules", "workshop", "join", "lobby" (vuota fuori dal menu).
+var menu_page := ""
+var _help_from_menu := false
+var setup_net := ["", "", "", "", ""]   # chi guida un colore «Persona» da lontano: "online", "phone" o "" (questo schermo)
+var _step := "route"           # scheda aperta nella disposizione stretta: route, ships, game
+var _race_cards: Dictionary = {}
+var _race_step_btns: Dictionary = {}
+var _race_start_btn: Button
+
+## Tipo di pilota del colore i: no, cpu (Bot), human (Umano su questo schermo), online, phone.
+func _seat_kind(i: int) -> String:
+	if not setup_on[i]:
+		return "no"
+	if setup_ai[i]:
+		return "cpu"
+	return String(setup_net[i]) if String(setup_net[i]) != "" else "human"
+
+func _remote_seats() -> Array:
+	var out := []
+	for i in setup_on.size():
+		if _seat_kind(i) in ["online", "phone"]:
+			out.append(i)
+	return out
+
+## Pagina a piena pagina: sfondo con l'immagine, velo scuro e contenuto con i margini.
+func _page(content: Control, page: String, dim := 0.82) -> void:
+	_close_modal()
+	menu_page = page
+	modal_root = Control.new()
+	modal_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	modal_layer.add_child(modal_root)
+	if ResourceLoader.exists(COVER):
+		var tr := TextureRect.new()
+		tr.texture = load(COVER)
+		tr.set_anchors_preset(Control.PRESET_FULL_RECT)
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		modal_root.add_child(tr)
+	var d := ColorRect.new()
+	d.color = Color(0.02, 0.03, 0.07, dim)
+	d.set_anchors_preset(Control.PRESET_FULL_RECT)
+	modal_root.add_child(d)
+	var m := MarginContainer.new()
+	m.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var narrow := get_viewport().get_visible_rect().size.x < 900
+	for s in ["left", "right"]:
+		m.add_theme_constant_override("margin_" + s, 14 if narrow else 26)
+	m.add_theme_constant_override("margin_top", 14 if narrow else 18)
+	m.add_theme_constant_override("margin_bottom", 14 if narrow else 18)
+	m.add_child(content)
+	modal_root.add_child(m)
+
+## Schermo largo abbastanza per le colonne affiancate.
+func _wide() -> bool:
+	var vs := get_viewport().get_visible_rect().size
+	return vs.x >= 1100 and vs.x > vs.y * 1.2
+
+func _card(min_w := 0.0) -> PanelContainer:
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UIKit.box(Color(UIKit.PANEL, 0.90), 18, Color(UIKit.LINE, 0.9), 2, 14))
+	pc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pc.custom_minimum_size = Vector2(min_w, 0)
+	return pc
+
+## Barra in alto di ogni pagina: «Indietro», titolo e, a destra, eventuali altri tasti.
+func _page_header(title: String, back: Callable, back_text := "Indietro") -> HBoxContainer:
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 14)
+	var bb := UIKit.button(back_text)
+	bb.custom_minimum_size = Vector2(150, 52)
+	bb.size_flags_horizontal = 0
+	bb.pressed.connect(back)
+	head.add_child(bb)
+	var tt := UIKit.title(title, 44)
+	tt.autowrap_mode = TextServer.AUTOWRAP_OFF
+	tt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tt.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(tt)
+	return head
+
+## Pagina iniziale: Gara, Editor, Officina, Regole.
 func show_menu() -> void:
-	var land := _is_landscape()
-	if menu_tab == "":
+	var hm := HomeMenu.new()
+	hm.can_resume = game != null and not game.over and phase != "menu"
+	hm.can_fullscreen = not OS.has_feature("mobile")
+	hm.fullscreen_text = "Finestra" if get_window().mode in [Window.MODE_FULLSCREEN, Window.MODE_EXCLUSIVE_FULLSCREEN] else "Schermo intero"
+	hm.chosen.connect(_home_chosen)
+	_close_modal()
+	menu_page = "home"
+	modal_root = Control.new()
+	modal_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	modal_layer.add_child(modal_root)
+	modal_root.add_child(hm)
+
+func _home_chosen(id: String) -> void:
+	match id:
+		"race": show_race_setup()
+		"editor": show_editor_hub()
+		"workshop": show_workshop()
+		"rules": show_help(false)
+		"resume": _close_modal()
+		"fullscreen": _toggle_fullscreen()
+
+## Rimette la pagina del menu che era aperta (dopo un cambio di disposizione o di schermo intero).
+func _reshow(page: String) -> void:
+	match page:
+		"race": show_race_setup()
+		"editor": show_editor_hub()
+		"rules": show_help(false)
+		"workshop": show_workshop()
+		_: show_menu()
+
+## Pagina «Gara»: percorso, navette e piloti, opzioni della partita. Sugli schermi larghi tre colonne,
+## sugli altri tre schede (Percorso, Navette, Partita) con i tasti sempre in basso.
+func show_race_setup() -> void:
+	var vs := get_viewport().get_visible_rect().size
+	var wide := _wide()
+	var low := vs.y < 780
+	if menu_tab == "" or menu_tab == "editor":
 		menu_tab = "random" if _is_random() else "list"
 	_del_armed = ""
 	_menu_thumbs = []
-	var left := VBoxContainer.new()
-	left.add_theme_constant_override("separation", 12)
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	# titolo in un riquadro basso: la riga del carattere è molto alta e sprecherebbe spazio
-	var th := Control.new()
-	th.custom_minimum_size = Vector2(0, 62)
-	var tl := UIKit.title("Ion Tails", 58)
-	tl.autowrap_mode = TextServer.AUTOWRAP_OFF
-	tl.position = Vector2(0, -12)
-	th.add_child(tl)
-	var trow := HBoxContainer.new()
-	th.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	trow.add_child(th)
-	var brul := UIKit.button("Regole")
-	brul.custom_minimum_size = Vector2(130, 48)
-	brul.size_flags_horizontal = 0
-	brul.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	brul.pressed.connect(show_help.bind(false))
-	var bws := UIKit.button("Officina")
-	bws.custom_minimum_size = Vector2(150, 48)
-	bws.size_flags_horizontal = 0
-	bws.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	bws.pressed.connect(show_workshop)
-	trow.add_child(bws)
-	trow.add_child(brul)
-	left.add_child(trow)
-	left.add_child(UIKit.heading("Percorso"))
-	# tre schede: percorsi della lista, editor, pista casuale
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 10)
+	root.add_child(_page_header("Gara", show_menu))
+	# ---- colonna A: percorso
+	var ca := _card()
+	var va := VBoxContainer.new()
+	va.add_theme_constant_override("separation", 8)
+	ca.add_child(va)
+	va.add_child(UIKit.heading("Percorso"))
 	_menu_tabs = HBoxContainer.new()
 	_menu_tabs.add_theme_constant_override("separation", 8)
-	left.add_child(_menu_tabs)
+	va.add_child(_menu_tabs)
 	_menu_tab_box = VBoxContainer.new()
 	_menu_tab_box.add_theme_constant_override("separation", 8)
-	_menu_tab_box.custom_minimum_size = Vector2(0, MENU_TAB_H)
-	# la scheda prende lo spazio che avanza (la colonna di destra è più alta): lista più lunga,
-	# anteprima in fondo
+	_menu_tab_box.custom_minimum_size = Vector2(0, 120)
 	_menu_tab_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	left.add_child(_menu_tab_box)
+	_menu_tab_box.size_flags_stretch_ratio = 1.4
+	va.add_child(_menu_tab_box)
 	_menu_random_box = VBoxContainer.new()
 	_menu_random_box.add_theme_constant_override("separation", 8)
-	_menu_info = UIKit.label("", 18, UIKit.MUTED)
-	_menu_info.custom_minimum_size = Vector2(0, 52)
+	_menu_info = UIKit.label("", 17, UIKit.MUTED)
+	_menu_info.custom_minimum_size = Vector2(0, 50)
 	_menu_info.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	left.add_child(_menu_info)
+	va.add_child(_menu_info)
 	_menu_preview = CoursePreview.new()
-	_menu_preview.custom_minimum_size = Vector2(0, 230 if land else 250)
-	left.add_child(_menu_preview)
+	_menu_preview.custom_minimum_size = Vector2(0, 110 if low else 140)
+	_menu_preview.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	va.add_child(_menu_preview)
 	_menu_tour_box = ScrollContainer.new()
 	_menu_tour_box.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_menu_tour_box.custom_minimum_size = _menu_preview.custom_minimum_size
+	_menu_tour_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_menu_tour_box.visible = false
-	left.add_child(_menu_tour_box)
-	var right := VBoxContainer.new()
-	right.add_theme_constant_override("separation", 10)
-	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	va.add_child(_menu_tour_box)
+	# ---- colonna B: navette e piloti
+	var cb := _card()
+	var sb := ScrollContainer.new()
+	sb.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	cb.add_child(sb)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sb.add_child(vb)
 	_menu_count = HBoxContainer.new()
 	_menu_count.add_theme_constant_override("separation", 8)
-	right.add_child(_menu_count)
+	vb.add_child(_menu_count)
 	_menu_rows = VBoxContainer.new()
 	_menu_rows.add_theme_constant_override("separation", 6)
-	right.add_child(_menu_rows)
-	# variante personale: programmazione e movimento simultanei
-	_menu_sim_row = HBoxContainer.new()
-	_menu_sim_row.add_theme_constant_override("separation", 8)
-	right.add_child(_menu_sim_row)
-	_menu_sim_lbl = UIKit.label("", 16, UIKit.MUTED)
-	_menu_sim_lbl.custom_minimum_size = Vector2(0, 72)
+	vb.add_child(_menu_rows)
+	vb.add_child(UIKit.label("Umano: gioca su questo schermo. Bot: lo guida il computer. Online: un amico entra con il codice della stanza. Telefono: si gioca dal telefono, inquadrando il QR.", 15, UIKit.MUTED))
+	# ---- colonna C: partita
+	var cc := _card()
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	cc.add_child(sc)
+	var vc := VBoxContainer.new()
+	vc.add_theme_constant_override("separation", 10)
+	vc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(vc)
+	vc.add_child(UIKit.heading("Il tuo nome"))
+	var ses := _net().load_session()
+	_on_name = _line_edit("il tuo nome", 20)
+	_on_name.text = str(ses.get("name", ""))
+	vc.add_child(_on_name)
+	vc.add_child(UIKit.label("Serve quando crei una stanza online e giochi anche tu.", 15, UIKit.MUTED))
+	_menu_sim_row = VBoxContainer.new()
+	_menu_sim_row.add_theme_constant_override("separation", 6)
+	vc.add_child(_menu_sim_row)
+	_menu_sim_lbl = UIKit.label("", 15, UIKit.MUTED)
+	_menu_sim_lbl.custom_minimum_size = Vector2(0, 90)
 	_menu_sim_lbl.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	right.add_child(_menu_sim_lbl)
-	_menu_timer_row = HBoxContainer.new()
-	_menu_timer_row.add_theme_constant_override("separation", 8)
-	right.add_child(_menu_timer_row)
+	vc.add_child(_menu_sim_lbl)
+	_menu_timer_row = VBoxContainer.new()
+	_menu_timer_row.add_theme_constant_override("separation", 6)
+	vc.add_child(_menu_timer_row)
 	_menu_build_timer()
-	right.add_child(_online_box())
-	# in fondo: schermo intero e partenza
+	vc.add_child(UIKit.heading("Stanza online"))
+	vc.add_child(UIKit.label("Se metti qualche navetta su «Online» o «Telefono», il tasto in basso crea una stanza: compaiono un codice di 4 lettere e un QR. Chi entra sceglie la propria navetta; i posti che restano liberi li guida il computer.", 15, UIKit.MUTED))
+	# ---- barra in basso
+	_on_lbl = UIKit.label("", 17, UIKit.HEAD)
+	_on_lbl.custom_minimum_size = Vector2(0, 26)
+	_on_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var acts := HBoxContainer.new()
 	acts.add_theme_constant_override("separation", 10)
+	var bj := UIKit.button("Entra in una stanza")
+	bj.custom_minimum_size = Vector2(0, 54)
+	bj.size_flags_horizontal = 0
+	bj.pressed.connect(show_join_room)
+	acts.add_child(bj)
 	if game != null and not game.over and phase != "menu":
 		var back := UIKit.button("Torna alla gara")
+		back.custom_minimum_size = Vector2(0, 54)
+		back.size_flags_horizontal = 0
 		back.pressed.connect(_close_modal)
 		acts.add_child(back)
-	if not OS.has_feature("mobile"):
-		var fs := UIKit.button("Finestra" if get_window().mode in [Window.MODE_FULLSCREEN, Window.MODE_EXCLUSIVE_FULLSCREEN] else "Schermo intero")
-		fs.pressed.connect(_toggle_fullscreen)
-		acts.add_child(fs)
+	var sp := Control.new()
+	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	acts.add_child(sp)
 	_menu_start = UIKit.cta("Inizia la gara")
+	_menu_start.custom_minimum_size = Vector2(260, 60)
+	_menu_start.size_flags_horizontal = 0
 	_menu_start.pressed.connect(_menu_start_pressed)
 	acts.add_child(_menu_start)
-	var cols: BoxContainer
-	if land:
-		cols = HBoxContainer.new()
-		cols.add_theme_constant_override("separation", 36)
+	# ---- disposizione
+	_race_cards = {"route": ca, "ships": cb, "game": cc}
+	var body: Control
+	if wide:
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 14)
+		h.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		ca.size_flags_stretch_ratio = 1.0
+		cb.size_flags_stretch_ratio = 1.35
+		cc.size_flags_stretch_ratio = 0.8
+		h.add_child(ca)
+		h.add_child(cb)
+		h.add_child(cc)
+		body = h
 	else:
-		cols = VBoxContainer.new()
-		cols.add_theme_constant_override("separation", 14)
-	cols.add_child(left)
-	cols.add_child(right)
-	var root_box := VBoxContainer.new()
-	root_box.add_theme_constant_override("separation", 16)
-	root_box.add_child(cols)
-	root_box.add_child(acts)
+		var v := VBoxContainer.new()
+		v.add_theme_constant_override("separation", 8)
+		v.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		var tabs := HBoxContainer.new()
+		tabs.add_theme_constant_override("separation", 8)
+		_race_step_btns = {}
+		for s in [["route", "1  Percorso"], ["ships", "2  Navette"], ["game", "3  Partita"]]:
+			var tb := UIKit.button(s[1])
+			tb.custom_minimum_size = Vector2(0, 50)
+			tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var key: String = s[0]
+			tb.pressed.connect(func(): _race_step(key))
+			tabs.add_child(tb)
+			_race_step_btns[key] = tb
+		v.add_child(tabs)
+		for k in _race_cards:
+			v.add_child(_race_cards[k])
+		body = v
+	root.add_child(body)
+	root.add_child(_on_lbl)
+	root.add_child(acts)
 	_menu_build_tabs()
 	_menu_build_tab()
 	_menu_build_sim()
 	_menu_rebuild_players()
 	_menu_refresh_info()
-	_modal(root_box, 1080 if land else 700, true)
+	if not wide:
+		_race_step(_step)
+	_page(root, "race")
+
+func _race_step(s: String) -> void:
+	_step = s
+	for k in _race_cards:
+		(_race_cards[k] as Control).visible = k == s
+	for k in _race_step_btns:
+		var b: Button = _race_step_btns[k]
+		if k == s:
+			UIKit.style_button(b, Color(UIKit.ACCENT, 0.35), UIKit.INK, UIKit.ACCENT, 3, 12)
+		else:
+			UIKit.style_button(b, UIKit.SOFT, UIKit.MUTED, UIKit.LINE, 1, 12)
+
+## Pagina «Editor»: crea e modifica i percorsi, mappa le tessere, libreria online.
+func show_editor_hub() -> void:
+	var wide := _wide()
+	_del_armed = ""
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 10)
+	root.add_child(_page_header("Editor", show_menu))
+	var body: BoxContainer = HBoxContainer.new() if wide else VBoxContainer.new()
+	body.add_theme_constant_override("separation", 14)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(body)
+	var ca := _card()
+	var va := VBoxContainer.new()
+	va.add_theme_constant_override("separation", 10)
+	ca.add_child(va)
+	ca.size_flags_vertical = Control.SIZE_EXPAND_FILL if wide else Control.SIZE_SHRINK_BEGIN
+	va.add_child(UIKit.heading("Crea"))
+	va.add_child(UIKit.label("Disegna un percorso incastrando le tessere del canyon, partendo da una pista vuota o da una già fatta. Si salva sul dispositivo e, con la libreria online, su tutti i tuoi dispositivi.", 17, UIKit.MUTED))
+	var bed := UIKit.cta("Crea percorso")
+	bed.custom_minimum_size = Vector2(0, 64)
+	bed.pressed.connect(func():
+		CourseEditor.start_from = ""
+		get_tree().change_scene_to_file("res://scenes/course_editor.tscn"))
+	va.add_child(bed)
+	var bmap := UIKit.button("Mappa le tessere")
+	bmap.custom_minimum_size = Vector2(0, 54)
+	bmap.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/mapper.tscn"))
+	va.add_child(bmap)
+	var lw := CourseLibrary.word(_net())
+	var blib := UIKit.button("Libreria online: " + ("collegata, sincronizza" if lw != "" else "non collegata"))
+	blib.custom_minimum_size = Vector2(0, 54)
+	blib.pressed.connect(_library_dialog)
+	va.add_child(blib)
+	body.add_child(ca)
+	var cb := _card()
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	cb.add_child(vb)
+	vb.add_child(UIKit.heading("Le tue piste"))
+	var l := _list_scroll(260.0)
+	var lv: VBoxContainer = l[1]
+	var n := 0
+	for i in course_files.size():
+		var path := String(course_files[i])
+		if not path.begins_with("user://"):
+			continue
+		n += 1
+		var r := HBoxContainer.new()
+		r.add_theme_constant_override("separation", 6)
+		var nl := UIKit.label(_course_name(path), 20)
+		nl.autowrap_mode = TextServer.AUTOWRAP_OFF
+		nl.clip_text = true
+		nl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		r.add_child(nl)
+		var be := UIKit.button("Modifica")
+		be.custom_minimum_size = Vector2(120, 50)
+		be.size_flags_horizontal = 0
+		be.pressed.connect(func():
+			CourseEditor.start_from = path
+			get_tree().change_scene_to_file("res://scenes/course_editor.tscn"))
+		r.add_child(be)
+		var bd := UIKit.button("Sicuro?" if _del_armed == path else "Elimina")
+		bd.custom_minimum_size = Vector2(120, 50)
+		bd.size_flags_horizontal = 0
+		if _del_armed == path:
+			bd.add_theme_color_override("font_color", Color(0.75, 0.12, 0.1))
+		bd.pressed.connect(_editor_delete.bind(path))
+		r.add_child(bd)
+		lv.add_child(r)
+	if n == 0:
+		lv.add_child(UIKit.label("Non hai ancora creato piste. Premi «Crea percorso».", 18, UIKit.MUTED))
+	vb.add_child(l[0])
+	body.add_child(cb)
+	_page(root, "editor")
+
+## Elimina una pista creata dal giocatore (secondo tocco per confermare).
+func _editor_delete(path: String) -> void:
+	if _del_armed != path:
+		_del_armed = path
+		show_editor_hub()
+		return
+	_del_armed = ""
+	var cur_path := String(course_files[course_idx]) if course_idx < course_files.size() else ""
+	DirAccess.remove_absolute(path)
+	if CourseLibrary.linked(_net()):
+		CourseLibrary.remove(net, path.get_file().get_basename())
+	_scan_courses()
+	var k := course_files.find(cur_path)
+	if k >= 0:
+		course_idx = k
+	show_editor_hub()
+
+## Entrare in una stanza creata da un amico (o dallo schermo condiviso) con il suo codice.
+func show_join_room() -> void:
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 10)
+	var back := func():
+		online = {}
+		show_race_setup()
+	root.add_child(_page_header("Entra in una stanza", back))
+	var cc := CenterContainer.new()
+	cc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(cc)
+	var card := _card(560)
+	card.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	cc.add_child(card)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	card.add_child(v)
+	var ses := _net().load_session()
+	v.add_child(UIKit.heading("Il tuo nome"))
+	_on_name = _line_edit("il tuo nome", 20)
+	_on_name.text = str(ses.get("name", ""))
+	v.add_child(_on_name)
+	v.add_child(UIKit.heading("Codice della stanza"))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	_on_code = _line_edit("codice", 4)
+	_on_code.custom_minimum_size.x = 150
+	_on_code.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_on_code.text_changed.connect(func(t):
+		_on_code.text = t.to_upper()
+		_on_code.caret_column = t.length())
+	row.add_child(_on_code)
+	var bj := UIKit.cta("Entra")
+	bj.custom_minimum_size = Vector2(160, 56)
+	bj.size_flags_horizontal = 0
+	bj.pressed.connect(_online_join)
+	row.add_child(bj)
+	v.add_child(row)
+	_on_lbl = UIKit.label("Chi ha creato la stanza ti dà un codice di 4 lettere, oppure ti fa inquadrare il QR col telefono. I posti liberi li guida il computer.", 17, UIKit.MUTED)
+	_on_lbl.custom_minimum_size = Vector2(0, 80)
+	v.add_child(_on_lbl)
+	if str(ses.get("room", "")) != "":
+		_on_code.text = str(ses["room"])
+		_on_lbl.text = "Eri nella stanza %s: premi «Entra» per rientrare." % ses["room"]
+	_page(root, "join")
 
 func _is_random() -> bool:
 	return course_idx >= course_files.size()
 
 func _menu_build_tabs() -> void:
 	UIKit.clear(_menu_tabs)
-	for opt in [["list", "Dalla lista"], ["editor", "Editor"], ["random", "Pista casuale"]]:
+	for opt in [["list", "Dalla lista"], ["random", "Pista casuale"]]:
 		var mb := UIKit.button(opt[1], menu_tab == opt[0])
 		mb.custom_minimum_size = Vector2(0, 50)
 		mb.pressed.connect(_menu_set_tab.bind(opt[0]))
@@ -592,40 +903,38 @@ func _menu_set_tab(t: String) -> void:
 
 func _menu_build_sim() -> void:
 	UIKit.clear(_menu_sim_row)
-	var vl := UIKit.heading("Movimento")
-	vl.autowrap_mode = TextServer.AUTOWRAP_OFF
-	vl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_menu_sim_row.add_child(vl)
+	_menu_sim_row.add_child(UIKit.heading("Movimento"))
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 8)
 	for opt in [[false, "A turni"], [true, "Simultaneo"]]:
 		var vb2 := UIKit.button(opt[1], sim_variant == opt[0])
-		vb2.custom_minimum_size = Vector2(130, 48)
-		vb2.size_flags_horizontal = 0
+		vb2.custom_minimum_size = Vector2(100, 48)
+		vb2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vb2.pressed.connect(func():
 			sim_variant = opt[0]
 			_menu_build_sim())
-		_menu_sim_row.add_child(vb2)
-	_menu_sim_lbl.text = ("Variante: tutti programmano la mossa, poi le navette partono insieme. Se due navette non possono evitarsi, passa la più veloce e l'altra si ferma con mezzo danno. Solo per le partite su questo dispositivo."
+		hb.add_child(vb2)
+	_menu_sim_row.add_child(hb)
+	_menu_sim_lbl.text = ("Variante: tutti programmano la mossa, poi le navette partono insieme. Se due navette non possono evitarsi, passa la più veloce e l'altra si ferma con mezzo danno."
 		if sim_variant else "Regolamento: le navette muovono una alla volta, dalla prima all'ultima in classifica.")
 
 ## Secondi per la scelta segreta dei gadget a ogni turno (0 = senza limite).
 var choice_secs := 30
-var _menu_timer_row: HBoxContainer
+var _menu_timer_row: VBoxContainer
 func _menu_build_timer() -> void:
 	UIKit.clear(_menu_timer_row)
-	var vl := UIKit.heading("Tempo per i gadget")
-	vl.autowrap_mode = TextServer.AUTOWRAP_OFF
-	vl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_menu_timer_row.add_child(vl)
+	_menu_timer_row.add_child(UIKit.heading("Tempo per i gadget"))
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 6)
 	for opt in [[20, "20 s"], [30, "30 s"], [60, "60 s"], [0, "Senza"]]:
 		var b := UIKit.button(opt[1], choice_secs == opt[0])
-		b.custom_minimum_size = Vector2(84, 48)
-		b.size_flags_horizontal = 0
+		b.custom_minimum_size = Vector2(62, 48)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(func():
 			choice_secs = opt[0]
 			_menu_build_timer())
-		_menu_timer_row.add_child(b)
+		hb.add_child(b)
+	_menu_timer_row.add_child(hb)
 
 func _menu_pick_course(i: int) -> void:
 	course_idx = i
@@ -662,7 +971,7 @@ func _menu_build_tab() -> void:
 		_menu_tab_box.add_child(_menu_random_box)
 		_menu_build_random()
 	elif menu_tab == "list":
-		var l := _list_scroll(MENU_TAB_H)
+		var l := _list_scroll(100.0)
 		var sc: ScrollContainer = l[0]
 		var vb: VBoxContainer = l[1]
 		var mine := false
@@ -688,65 +997,8 @@ func _menu_build_tab() -> void:
 				_scroll_to(sc, b)
 		if not mine:
 			vb.add_child(UIKit.label("Create da te", 18, UIKit.MUTED))
-			vb.add_child(UIKit.label("Nessuna: creane una nella scheda Editor.", 17, UIKit.MUTED))
+			vb.add_child(UIKit.label("Nessuna: creane una dalla pagina Editor.", 17, UIKit.MUTED))
 		_menu_tab_box.add_child(sc)
-	else:
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 8)
-		var bed := UIKit.button("Crea percorso")
-		bed.custom_minimum_size = Vector2(0, 50)
-		bed.pressed.connect(func():
-			CourseEditor.start_from = course_files[course_idx] if course_idx < course_files.size() else ""
-			get_tree().change_scene_to_file("res://scenes/course_editor.tscn"))
-		row.add_child(bed)
-		var bmap := UIKit.button("Mappa le tessere")
-		bmap.custom_minimum_size = Vector2(0, 50)
-		bmap.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/mapper.tscn"))
-		row.add_child(bmap)
-		_menu_tab_box.add_child(row)
-		var lt := UIKit.label("Le tue piste", 18, UIKit.MUTED)
-		lt.custom_minimum_size = Vector2(0, 22)
-		_menu_tab_box.add_child(lt)
-		var l := _list_scroll(MENU_TAB_H - 50 - 22 - 16 - 12 - 54)
-		var vb: VBoxContainer = l[1]
-		var n := 0
-		for i in course_files.size():
-			var path := String(course_files[i])
-			if not path.begins_with("user://"):
-				continue
-			n += 1
-			var r := HBoxContainer.new()
-			r.add_theme_constant_override("separation", 6)
-			var b := UIKit.button(_course_name(path), i == course_idx)
-			b.custom_minimum_size = Vector2(0, 46)
-			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			b.clip_text = true
-			b.pressed.connect(_menu_pick_course.bind(i))
-			r.add_child(b)
-			var be := UIKit.button("Modifica")
-			be.custom_minimum_size = Vector2(110, 46)
-			be.size_flags_horizontal = 0
-			be.pressed.connect(func():
-				CourseEditor.start_from = path
-				get_tree().change_scene_to_file("res://scenes/course_editor.tscn"))
-			r.add_child(be)
-			var bd := UIKit.button("Sicuro?" if _del_armed == path else "Elimina")
-			bd.custom_minimum_size = Vector2(110, 46)
-			bd.size_flags_horizontal = 0
-			if _del_armed == path:
-				bd.add_theme_color_override("font_color", Color(0.75, 0.12, 0.1))
-			bd.pressed.connect(_menu_delete.bind(path))
-			r.add_child(bd)
-			vb.add_child(r)
-		if n == 0:
-			vb.add_child(UIKit.label("Non hai ancora creato piste. Premi «Crea percorso».", 17, UIKit.MUTED))
-		_menu_tab_box.add_child(l[0])
-		var lw := CourseLibrary.word(_net())
-		var blib := UIKit.button("Libreria online: " + ("collegata, sincronizza" if lw != "" else "non collegata"))
-		blib.custom_minimum_size = Vector2(0, 46)
-		blib.pressed.connect(_library_dialog)
-		_menu_tab_box.add_child(blib)
 
 ## Libreria online delle piste: parola segreta, sincronizzazione.
 func _library_dialog() -> void:
@@ -762,13 +1014,13 @@ func _library_dialog() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	var bx := UIKit.button("Chiudi")
-	bx.pressed.connect(show_menu)
+	bx.pressed.connect(show_editor_hub)
 	row.add_child(bx)
 	if CourseLibrary.linked(net):
 		var bu := UIKit.button("Scollega")
 		bu.pressed.connect(func():
 			CourseLibrary.set_word(net, "")
-			show_menu())
+			show_editor_hub())
 		row.add_child(bu)
 	var bs := UIKit.cta("Collega e sincronizza")
 	bs.pressed.connect(func():
@@ -969,31 +1221,52 @@ func _menu_build_tour() -> void:
 		vb.add_child(b)
 	(func(): _menu_tour_box.scroll_vertical = keep).call_deferred()
 
-## Ogni colore: «no» (non corre), «Persona» o «CPU». Servono almeno due navette.
+## Ogni colore: «No» (non corre), «Bot», «Umano» (questo schermo), «Online» o «Telefono». Servono almeno due navette.
 func _menu_set_seat(i: int, kind: String) -> void:
 	if kind == "no":
 		if setup_on[i] and setup_n <= 2:
+			_on_text("Servono almeno due navette in gara.")
 			return
 		setup_on[i] = false
+		setup_net[i] = ""
 	else:
 		setup_on[i] = true
 		setup_ai[i] = kind == "cpu"
+		setup_net[i] = kind if kind in ["online", "phone"] else ""
+	_on_text("")
 	_menu_rebuild_players()
 	if _is_tour():
 		_menu_refresh_info()
 
+func _menu_update_start() -> void:
+	if _menu_start != null and is_instance_valid(_menu_start):
+		_menu_start.text = "Crea la stanza" if not _remote_seats().is_empty() else "Inizia la gara"
+
 func _menu_rebuild_players() -> void:
 	UIKit.clear(_menu_count)
-	var hd := UIKit.heading("Navette")
+	var hd := UIKit.heading("Navette e piloti")
 	hd.autowrap_mode = TextServer.AUTOWRAP_OFF
 	hd.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hd.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_menu_count.add_child(hd)
 	var humans := 0
+	var bots := 0
+	var far := 0
 	for i in setup_on.size():
-		if setup_on[i] and not setup_ai[i]: humans += 1
-	var summary := UIKit.label("%d in gara: %d %s, %d CPU" % [setup_n, humans, "persona" if humans == 1 else "persone", setup_n - humans], 18, UIKit.MUTED)
+		match _seat_kind(i):
+			"human": humans += 1
+			"cpu": bots += 1
+			"online", "phone": far += 1
+	var parts := []
+	if humans > 0:
+		parts.append("%d su questo schermo" % humans)
+	if far > 0:
+		parts.append("%d a distanza" % far)
+	if bots > 0:
+		parts.append("%d bot" % bots)
+	var summary := UIKit.label("%d in gara: %s" % [setup_n, ", ".join(parts)], 17, UIKit.MUTED)
 	summary.autowrap_mode = TextServer.AUTOWRAP_OFF
+	summary.clip_text = true
 	summary.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_menu_count.add_child(summary)
 	# le miniature 3D restano le stesse: si staccano prima di rifare le righe
@@ -1001,35 +1274,73 @@ func _menu_rebuild_players() -> void:
 		if is_instance_valid(t) and t.get_parent():
 			t.get_parent().remove_child(t)
 	UIKit.clear(_menu_rows)
+	var compact: bool = _wide() and get_viewport().get_visible_rect().size.y < 780
 	for i in setup_on.size():
-		var on: bool = setup_on[i]
-		var r := HBoxContainer.new()
-		r.add_theme_constant_override("separation", 6)
-		if i >= _menu_thumbs.size() or not is_instance_valid(_menu_thumbs[i]):
-			if i >= _menu_thumbs.size():
-				_menu_thumbs.resize(i + 1)
-			_menu_thumbs[i] = SledThumb.new(SledGame.COLORS[i], 220, 62, _seat_model(i))
-		var th: SledThumb = _menu_thumbs[i]
-		th.set_active(on)
-		th.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		th.tooltip_text = SledGame.NAMES[i]
-		# a sinistra la navetta con sotto la tendina per sceglierla, a destra chi la guida
-		var lc := VBoxContainer.new()
-		lc.add_theme_constant_override("separation", 2)
-		lc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		th.custom_minimum_size = Vector2(200, 46 if on else 52)
-		lc.add_child(th)
-		if on:
-			lc.add_child(_ship_picker(i))
-		r.add_child(lc)
-		for opt in [["no", "No", not on, 80], ["human", "Persona", on and not setup_ai[i], 130], ["cpu", "CPU", on and setup_ai[i], 100]]:
-			var b := UIKit.button(opt[1], opt[2])
-			b.custom_minimum_size = Vector2(opt[3], 52)
-			b.size_flags_horizontal = 0
-			b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			b.pressed.connect(_menu_set_seat.bind(i, opt[0]))
-			r.add_child(b)
-		_menu_rows.add_child(r)
+		_menu_rows.add_child(_seat_card(i, compact))
+	_menu_update_start()
+
+## Scheda di un colore: la navetta (anteprima 3D e tendina per sceglierla) e chi la guida.
+func _seat_card(i: int, compact: bool) -> PanelContainer:
+	var kind := _seat_kind(i)
+	var on := kind != "no"
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UIKit.box(Color(UIKit.SOFT, 0.95 if on else 0.5), 14, Color(SledGame.COLORS[i], 0.9) if on else Color(UIKit.LINE, 0.6), 2, 8))
+	if i >= _menu_thumbs.size() or not is_instance_valid(_menu_thumbs[i]):
+		if i >= _menu_thumbs.size():
+			_menu_thumbs.resize(i + 1)
+		_menu_thumbs[i] = SledThumb.new(SledGame.COLORS[i], 220, 62, _seat_model(i))
+	var th: SledThumb = _menu_thumbs[i]
+	th.set_active(on)
+	th.tooltip_text = SledGame.NAMES[i]
+	th.custom_minimum_size = Vector2(130 if compact else 150, 46 if on else 40)
+	th.size_flags_horizontal = 0
+	var pick: Control
+	if kind in ["human", "cpu"]:
+		pick = _ship_picker(i)
+	else:
+		var tx := "non corre" if kind == "no" else "la navetta la sceglie chi entra"
+		pick = UIKit.label(tx, 15, UIKit.MUTED)
+		pick.autowrap_mode = TextServer.AUTOWRAP_OFF
+		(pick as Label).clip_text = true
+		pick.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var ctrl := _seat_ctrl(i, kind)
+	if compact:
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 8)
+		h.add_child(th)
+		pick.custom_minimum_size.x = 150
+		h.add_child(pick)
+		ctrl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		h.add_child(ctrl)
+		pc.add_child(h)
+	else:
+		var v := VBoxContainer.new()
+		v.add_theme_constant_override("separation", 4)
+		var top := HBoxContainer.new()
+		top.add_theme_constant_override("separation", 8)
+		top.add_child(th)
+		top.add_child(pick)
+		v.add_child(top)
+		v.add_child(ctrl)
+		pc.add_child(v)
+	return pc
+
+## Chi guida il colore i: No, Bot, Umano (questo schermo), Online (amico con il codice), Telefono (QR).
+func _seat_ctrl(i: int, kind: String) -> HBoxContainer:
+	var r := HBoxContainer.new()
+	r.add_theme_constant_override("separation", 4)
+	var tips := {"no": "Questo colore non corre", "cpu": "Lo guida il computer", "human": "Si gioca su questo schermo",
+		"online": "Un amico entra da un altro dispositivo con il codice della stanza", "phone": "Si gioca dal telefono: inquadra il QR della stanza"}
+	for opt in [["no", "No", 50], ["cpu", "Bot", 60], ["human", "Umano", 82], ["online", "Online", 82], ["phone", "Telefono", 100]]:
+		var b := UIKit.button(opt[1], kind == opt[0])
+		b.custom_minimum_size = Vector2(opt[2], 44)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", 17)
+		b.tooltip_text = tips[opt[0]]
+		b.pressed.connect(_menu_set_seat.bind(i, opt[0]))
+		r.add_child(b)
+	return r
 
 ## Modello 3D della navetta scelta per il colore i.
 func _seat_model(i: int) -> int:
@@ -1165,132 +1476,26 @@ func _rule_text(t: String) -> RichTextLabel:
 	return r
 
 var _help_fan := false
+var _help_section := "play"
 
+## Regole a piena pagina (dal menu o dal tasto «Regole» in gara).
 func show_help(force_fan := false) -> void:
-	var from_menu := phase == "menu" or modal_root != null and _menu_tab_box != null and is_instance_valid(_menu_tab_box) and _menu_tab_box.is_inside_tree()
+	var from_menu := menu_page != "" and (menu_page != "rules" or _help_from_menu)
+	_help_from_menu = from_menu
 	var fan := force_fan or _uses_fan()
-	var land := _is_landscape()
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 10)
-	var head := HBoxContainer.new()
-	var tt := UIKit.title("Regole", 44)
-	tt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(tt)
-	var close := UIKit.cta("Chiudi")
-	close.custom_minimum_size = Vector2(150, 52)
-	close.size_flags_horizontal = 0
-	close.pressed.connect(func():
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 10)
+	var back := func():
 		if from_menu:
 			show_menu()
 		else:
-			_close_modal())
-	head.add_child(close)
-	vb.add_child(head)
-	var sc := ScrollContainer.new()
-	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	var vh := get_viewport().get_visible_rect().size.y
-	sc.custom_minimum_size = Vector2(0, max(360.0, vh * 0.74))
-	vb.add_child(sc)
-	var body: BoxContainer = HBoxContainer.new() if land else VBoxContainer.new()
-	body.add_theme_constant_override("separation", 30)
-	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sc.add_child(body)
-	var c1 := VBoxContainer.new()
-	c1.add_theme_constant_override("separation", 10)
-	c1.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var c2 := VBoxContainer.new()
-	c2.add_theme_constant_override("separation", 10)
-	c2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body.add_child(c1)
-	body.add_child(c2)
-	# --- regolamento ---
-	c1.add_child(UIKit.heading("Come si gioca"))
-	c1.add_child(_rule_text("""[b]Lo scopo.[/b] Tagliare il traguardo per primi con la propria navetta, senza distruggerla.
-
-[b]La navetta.[/b] Un abitacolo trainato da due motori, più il freno: tutti a 3 all'inizio. Velocità = motore sinistro + motore destro − freno. Deriva = differenza fra i motori: ti sposti di lato verso il motore più forte (mai più della velocità), nei passi che scegli tu.
-
-[b]La mossa.[/b] Quando tocca a te giochi da 1 a 3 carte dello stesso valore, al massimo una per spazio. Le carte sui motori restano; quella sul freno lo imposta e va negli scarti. Poi muovi e torni a 5 carte. I danni occupano posto in mano e non si scartano.
-
-[b]Ordine.[/b] A ogni turno muove prima chi è in testa, poi gli altri in ordine di posizione.
-
-[b]Equilibrio.[/b] Con i motori uguali puoi aggiungere un bonus pari alla tua posizione, tutto dritto, a fine movimento. Non al primo turno.
-
-[b]Pericoli.[/b] Curva oltre il limite: un danno per punto di troppo (il bonus conta). Bordo: ti fermi e prendi un danno. Tamponamento: ti fermi dietro e non peschi. Al quinto danno la navetta è distrutta.
-
-[b]Fine.[/b] Si corre finché tutte le navette hanno tagliato il traguardo. In classifica conta prima il turno in cui si taglia il traguardo, poi chi è andato più lontano oltre la linea."""))
-	c1.add_child(UIKit.heading("Punti gadget"))
-	c1.add_child(_rule_text("""[b]La scorta.[/b] A inizio gara ogni navetta riceve una scorta di punti che dipende dalla lunghezza della pista (un punto ogni %d passi dalla partenza al traguardo, al massimo 12): non se ne ricevono altri. Ogni punto speso è perso.
-
-[b]La scelta segreta.[/b] All'inizio di ogni turno, prima di muovere, ognuno decide in segreto quali gadget usare, con 1 o 2 punti ciascuno, in attacchi, difese e movimento, entro il tempo scelto nel menu (allo scadere vale la scelta fatta fin lì). Poi si muove come al solito; i gadget si scoprono quando agiscono.
-
-[b]Attacchi[/b]
-[b]Cecchino.[/b] Scegli un bersaglio: quando finisce la sua mossa il cecchino spara dal canyon. Mira = 55%% con 1 punto, 80%% con 2; −4%% per ogni punto di velocità del bersaglio oltre 4, −8%% per ogni corsia fra il bersaglio e la parete più vicina, −40%% per ogni punto di scudo. Colpo a segno: mezzo danno.
-[b]Mine.[/b] Una mina (1 punto) o due (2 punti) sulle caselle che ti lasci dietro durante la mossa. Chi ci passa sopra prende mezzo danno (tu no). Restano finché qualcuno non ci passa.
-[b]Missile.[/b] A fine mossa spari un missile guidato dritto davanti, nella tua corsia: gittata 7 caselle (1 punto) o 10 (2 punti). Colpisce la prima navetta visibile che incontra: mezzo danno.
-
-[b]Difese[/b]
-[b]Scudo.[/b] Si accende quando la navetta parte (prima lo vedi solo tu): una bolla azzurra attorno alla navetta per tutto il turno. Toglie il 40%% (1 punto) o l'80%% (2 punti) alla mira dei cecchini, ma ferma i missili (che arrivano da dietro) solo il 20%% o il 40%% delle volte.
-[b]Radar.[/b] Vedi le mine fino a 12 caselle davanti a te con 1 punto, fino a 24 con 2 (e quelle appena dietro). La rotta le evita quando può. A inizio turno un'onda verde parte dalla tua navetta e una scritta dice quante mine ha trovato.
-[b]CME.[/b] Contromisure contro i missili: con 1 punto il missile cambia corsia; se in una delle corsie accanto c'è un'altra navetta a tiro, va verso di lei (e può colpirla), altrimenti il lato è a caso. Con 2 punti il missile esplode.
-[b]Invisibilità.[/b] Tu vedi la tua navetta come una sagoma olografica azzurra. Con 1 punto sparisci alla vista degli altri per questo turno, con 2 anche per il seguente: cecchini, missili, arpione e blast non ti trovano, ma tu puoi sganciare mine e sparare. Le mine colpiscono anche chi è invisibile.
-
-[b]Mezzi danni.[/b] Tutti i gadget fanno mezzo danno: ne servono due per un danno intero.
-
-[b]Movimento[/b]
-[b]Postbruciatore.[/b] +1 (1 punto) o +2 (2 punti) alla velocità di questa mossa: conta anche per i limiti delle curve.
-[b]Arpione.[/b] Appena tutti hanno scelto i gadget, la navetta più vicina davanti a te (fino a %d passi) viene tirata subito indietro di 1 casella (1 punto) o 2 (2 punti), se dietro di lei c'è posto.
-[b]Blast ionico.[/b] A fine mossa parte un'onda dalla tua casella: tutte le navette entro 1 casella (1 punto) o 2 (2 punti), davanti, dietro o di lato, vengono spinte di una corsia lontano da te (se sono nella tua corsia, verso il bordo più vicino). Chi sbatte contro il bordo prende mezzo danno; se la casella accanto è occupata resta dov'è.
-
-[b]Gadget in più (da montare in officina)[/b]
-[b]Impulso EMP[/b] (attacco). A fine mossa spegne per il resto del turno scudo, CME, radar, esca e ancora delle navette entro 1 casella (1 punto) o 2 (2 punti).
-[b]Scia di sabbia[/b] (attacco). Le ultime 2 caselle (1 punto) o 4 (2 punti) che ti lasci dietro diventano sabbia.
-[b]Sifone ionico[/b] (attacco). Appena tutti hanno scelto, ruba 1 punto gadget (1 punto) o 3 (2 punti) alla navetta più vicina, davanti o dietro, entro 6 passi.
-[b]Esca olografica[/b] (difesa). Il primo missile che ti arriva colpisce l'esca; con 2 punti anche i cecchini sparano all'esca.
-[b]Nanobot[/b] (difesa). A fine mossa riparano mezzo danno (1 punto) o un danno (2 punti).
-[b]Ancora magnetica[/b] (difesa, 1 punto). Per questo turno arpione e blast ionico non ti spostano.
-[b]Stabilizzatori[/b] (movimento). +1 o +2 al limite delle curve in questa mossa.
-[b]Salto gravitazionale[/b] (movimento). In questa mossa scavalchi le altre navette; con 2 punti salti anche sopra le mine.""" % [int(SledGame.BUDGET_DIV), SledGame.HOOK_RANGE]))
-	c1.add_child(UIKit.heading("Officina"))
-	c1.add_child(_rule_text("""Dal menu, «Officina»: costruisci la tua navetta con [b]%d crediti[/b] e dalle un nome. [b]Scafo[/b], cioè quanti danni reggi (ogni danno è una carta inutile che occupa posto in mano): leggero (gratis, il 4° danno la distrugge), medio (2 crediti, il 5°, come di serie) o pesante (4 crediti: il primo danno non toglie carte e solo il 6° la distrugge). [b]Mazzo dei motori[/b], le tue 20 carte da 1 a 5: economico (gratis, più carte basse), bilanciato (1 credito, 4 per valore) o turbo (4 crediti, più carte alte). [b]Tipo di motori[/b], cioè come guidi: normali (gratis), oppure per 2 crediti stabili (a ogni mossa puoi derivare di una corsia in meno, se ti conviene), agili (in curva troppo forte il primo danno è solo mezzo danno), potenti (+1 alla velocità con i motori pari, ma con motori diversi derivi di 1 in più) o ionici (+1 punto gadget ogni 2 turni). [b]Batteria[/b]: piccola (gratis, 3 punti gadget in meno), media (2 crediti) o grande (4 crediti, 3 punti in più). Ogni [b]gadget montato[/b] costa 1 credito: in gara puoi usare solo quelli montati. La navetta di serie ha scafo medio, mazzo bilanciato, motori normali, batteria media e tutti i gadget.
-
-Le navette si salvano sul dispositivo e si possono pubblicare nella [b]galleria online[/b], dove si prendono quelle degli altri. Nel menu, sotto ogni colore, scegli quale navetta corre (anche per la CPU); online ognuno porta la sua.""" % ShipBuild.CREDITS))
-	c1.add_child(UIKit.heading("Varianti"))
-	c1.add_child(_rule_text("""[b]Simultaneo.[/b] Tutti programmano la mossa (carte e casella d'arrivo) senza vedere quella degli altri, poi le navette partono insieme: chi ha più caselle da fare va più veloce. Due navette non entrano mai nella stessa casella nello stesso momento: se possono la evitano, altrimenti entra la più veloce (a parità, chi era più avanti) e l'altra si ferma prima con mezzo danno.
-
-[b]Schermo condiviso.[/b] Uno schermo grande (TV, computer, tablet) crea la stanza e mostra codice e QR: ogni giocatore lo inquadra col telefono, sceglie la navetta e da lì gioca le carte e sceglie la casella. Sullo schermo grande si vede la pista e, nel simultaneo, chi ha già programmato e poi le navette che partono insieme.
-
-[b]Gran Tour.[/b] Più piste di fila con le stesse navette. A ogni gara il primo prende tante punti quante sono le navette meno una, poi a scalare; una navetta distrutta prende 0. Vince chi ha più punti alla fine."""))
-	c1.add_child(UIKit.heading("Comandi"))
-	c1.add_child(_rule_text("""Un dito trascina la pista; due dita avvicinano, ruotano e, spostate insieme in su o in giù, inclinano la vista. Col mouse: rotellina per lo zoom, tasto destro per ruotare. «Segui» fa girare la telecamera con la navetta di turno.
-Tastiera: 1–5 sceglie una carta; A, S, D (o frecce) la mettono su motore sinistro, freno, motore destro; Invio muove; Backspace riprende le carte; Esc torna indietro o apre il menu."""))
-	# --- icone ---
-	c2.add_child(UIKit.heading("Sulla pista"))
-	c2.add_child(_rule_item(_rule_img("res://assets/rules/limit.png"), "Limite della curva", "Il numero nel cerchio rosso, all'ingresso di curve e inversioni, è la velocità massima. Ogni punto in più (bonus compreso) è un danno."))
-	c2.add_child(_rule_item(_rule_img("res://assets/rules/leap_sign.png"), "Salto della gola", "La spaccatura fra i due cartelli va saltata a velocità 5 o più; per ogni punto che manca, un danno. Chi si ferma sulle caselle della spaccatura non pesca."))
-	c2.add_child(_rule_item(_rule_img("res://assets/rules/sapling.png"), "Massi", "Chi entra in una casella con un masso lo travolge e prende un danno per ogni masso. Poi il masso sparisce."))
-	c2.add_child(_rule_item(_rule_img("res://assets/tiles/snowdrift_p15a.webp", 92, 70), "Dune e crepacci", "Le dune e i crepacci chiudono alcune corsie: sono come il bordo della pista, chi ci finisce contro si ferma e prende un danno."))
-	c2.add_child(_rule_item(_rule_img("res://assets/tiles/start_p21.webp", 70, 72), "Partenza e traguardo", "Si sceglie a turno la casella di partenza, numerate da 1 a 5. Il traguardo è la linea rossa: conta quanto si va oltre."))
-	c2.add_child(UIKit.heading("Segni del gioco"))
-	c2.add_child(_rule_item(RuleIcon.new("dest"), "Destinazioni", "Gli anelli che pulsano sono le caselle dove puoi arrivare: tocca quella che vuoi."))
-	c2.add_child(_rule_item(RuleIcon.new("path"), "Percorso", "La linea sottile col puntino in ogni casella è la strada che farà la navetta."))
-	c2.add_child(_rule_item(RuleIcon.new("drift"), "Deriva", "Il tratto largo e chiaro è uno spostamento di lato verso il motore più forte."))
-	c2.add_child(_rule_item(RuleIcon.new("dent"), "Danni", "Il numero rosso sopra una destinazione dice quanti danni prendi arrivando lì."))
-	# --- fanmade ---
-	if fan:
-		c2.add_child(UIKit.heading("Segmenti fanmade"))
-		c2.add_child(_rule_item(_rule_img("res://assets/fan/sign_up.png", 64, 64), "Salita", "Chi parte da una tessera in salita ha %d punti di velocità in meno, come un freno in più (non si va sotto zero)." % SledGame.UP_LOSS))
-		c2.add_child(_rule_item(_rule_img("res://assets/fan/sign_down.png", 64, 64), "Discesa", "Chi parte da una tessera in discesa guadagna 1 punto di velocità ogni %d: a 3 va a 4, a 6 va a 8, a 9 va a 12." % SledGame.DOWN_PER))
-		c2.add_child(_rule_item(_rule_img("res://assets/fan/sign_fresh.png", 64, 64), "Sabbia", "Ogni casella coi cumuli costa 2 punti di movimento; la prima navetta che ci passa la spazza via. I cumuli cambiano posto a ogni gara."))
-		c2.add_child(_rule_item(_rule_img("res://assets/fan/sign_ice.png", 64, 64), "Vetro", "Chi entra derivando continua a derivare finché è sul vetro; a fine movimento scivola avanti di una casella."))
-		c2.add_child(_rule_item(_rule_img("res://assets/fan/sign_wind.png", 64, 64), "Tempesta di sabbia", "La forza è 1, 2 o 3 (a volte tirata a sorte a inizio gara). Vento di lato: chi parte dalla tessera ha tanta deriva in più nel verso della manica a vento, sommata a quella dei motori (o tolta, se va dall'altra parte); il bonus di equilibrio vale solo con deriva totale zero. Vento a favore: tanta velocità in più; vento contrario: tanta in meno."))
-		c2.add_child(_rule_item(_rule_img("res://assets/fan/sign_hut.png", 64, 64), "Officina", "Chi si ferma sulla casella accanto all'officina ripara metà dei danni (arrotondando a suo favore), ma non pesca."))
-		c2.add_child(_rule_item(_rule_img("res://assets/rules/fork_sign.png", 64, 64), "Bivio", "Uno sperone di roccia divide la pista in due rami con un numero diverso di caselle: da una parte sabbia, dall'altra massi."))
-	else:
-		var bf := UIKit.button("Mostra anche le regole fanmade")
-		bf.custom_minimum_size = Vector2(0, 50)
-		bf.pressed.connect(func(): show_help(true))
-		c2.add_child(bf)
-	_modal(vb, 1180.0 if land else 700.0, from_menu)
+			_close_modal()
+	root.add_child(_page_header("Regole", back, "Indietro" if from_menu else "Chiudi"))
+	var rv := RulesView.new(self, fan, _wide(), _help_section)
+	rv.section_changed.connect(func(id: String): _help_section = id)
+	rv.fan_requested.connect(func(): show_help(true))
+	root.add_child(rv)
+	_page(root, "rules", 0.88)
 
 # ======================= PARTITA =======================
 func start_game() -> void:
@@ -3515,43 +3720,6 @@ func _heartbeat(my: int) -> void:
 		await get_tree().create_timer(5.0).timeout
 
 # ---------- menu online ----------
-func _online_box() -> VBoxContainer:
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 8)
-	v.add_child(UIKit.heading("Online"))
-	var ses := _net().load_session()
-	_on_name = _line_edit("il tuo nome", 20)
-	_on_name.text = str(ses.get("name", ""))
-	v.add_child(_on_name)
-	var bc := UIKit.button("Crea una stanza")
-	bc.pressed.connect(_online_create.bind(false))
-	v.add_child(bc)
-	var bt := UIKit.button("Schermo condiviso: si gioca col telefono")
-	bt.pressed.connect(_online_create.bind(true))
-	v.add_child(bt)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	_on_code = _line_edit("codice", 4)
-	_on_code.custom_minimum_size.x = 130
-	_on_code.size_flags_horizontal = 0
-	_on_code.text_changed.connect(func(t):
-		_on_code.text = t.to_upper()
-		_on_code.caret_column = t.length())
-	row.add_child(_on_code)
-	var bj := UIKit.button("Entra")
-	bj.pressed.connect(_online_join)
-	row.add_child(bj)
-	v.add_child(row)
-	_on_lbl = UIKit.label("Le navette su «Persona» sono i posti per gli amici, che entrano col codice (i posti liberi li guida la CPU). Con «Schermo condiviso» qui si vede solo la gara e tutti giocano dal telefono.", 17, UIKit.MUTED)
-	v.add_child(_on_lbl)
-	if not online.is_empty() and online.get("lobby", false):
-		_on_code.text = online["code"]
-		_on_lbl.text = "Stanza [ %s ]…" % online["code"]
-	elif str(ses.get("room", "")) != "":
-		_on_code.text = str(ses["room"])
-		_on_lbl.text = "Eri nella stanza %s: premi «Entra» per rientrare." % ses["room"]
-	return v
-
 func _line_edit(ph: String, maxlen: int) -> LineEdit:
 	var le := LineEdit.new()
 	le.placeholder_text = ph
@@ -3577,16 +3745,10 @@ func _player_name() -> String:
 	return _on_name.text.strip_edges() if is_instance_valid(_on_name) else ""
 
 func _menu_start_pressed() -> void:
-	if online.get("lobby", false) and _is_tour():
-		_on_text("Il Gran Tour è solo per le partite su questo dispositivo: scegli una pista singola.")
-		return
-	if online.get("lobby", false):
-		if online["role"] == "host":
-			_online_start()
-		else:
-			_on_text("Aspetta che chi ha creato la stanza avvii la gara.")
-		return
-	start_game()
+	if _remote_seats().is_empty():
+		start_game()
+	else:
+		_online_create_from_menu()
 
 func _seats_text(room: Dictionary) -> String:
 	var seats := Net._as_dict(room.get("seats", {}))
@@ -3597,25 +3759,27 @@ func _seats_text(room: Dictionary) -> String:
 		parts.append("%s: %s" % [SledGame.NAMES[int(idx)], who])
 	return ", ".join(parts)
 
-## table: questo schermo non gioca, mostra la pista; le persone giocano dal proprio telefono.
-func _online_create(table := false) -> void:
+## Crea la stanza con i posti «Online» e «Telefono». Se c'è un solo «Umano» questo schermo gioca con quella
+## navetta; senza «Umano» mostra solo la pista (schermo condiviso) e tutti giocano da lontano.
+func _online_create_from_menu() -> void:
 	if _is_tour():
 		_on_text("Il Gran Tour è solo per le partite su questo dispositivo: scegli una pista singola.")
 		return
+	var humans := []
+	for i in setup_on.size():
+		if _seat_kind(i) == "human":
+			humans.append(i)
+	if humans.size() > 1:
+		_on_text("In una stanza online questo schermo guida una sola navetta: lascia «Umano» a una e metti le altre su «Online» o «Telefono».")
+		return
+	var table := humans.is_empty()
 	var nm := _player_name()
 	if nm == "" and not table:
-		_on_text("Scrivi il tuo nome.")
+		_on_text("Scrivi il tuo nome (scheda «Partita»).")
+		if not _wide():
+			_race_step("game")
 		return
-	var seats := []
-	for i in setup_on.size():
-		if setup_on[i] and not setup_ai[i]:
-			seats.append(i)
-	if table and seats.is_empty():
-		_on_text("Metti su «Persona» le navette che guideranno i giocatori col telefono.")
-		return
-	if not table and seats.size() < 2:
-		_on_text("Metti su «Persona» almeno due navette: la prima è la tua, le altre sono i posti per gli amici.")
-		return
+	var seats: Array = humans + _remote_seats()
 	_on_text("Creo la stanza…")
 	var code := await _net().create_room(nm if nm != "" else "Schermo", seats, table, "" if table else ShipBuild.to_json(_my_ship(seats[0])))
 	if code == "":
@@ -3626,12 +3790,7 @@ func _online_create(table := false) -> void:
 	net.remember_room(code, seat)
 	if nm != "":
 		net._save({"name": nm})
-	if is_instance_valid(_on_code):
-		_on_code.text = code
-	if table:
-		_table_lobby(code)
-	else:
-		_online_lobby_poll(code)
+	_table_lobby(code)
 
 ## Indirizzo del gioco con il codice della stanza: il telefono che lo apre entra direttamente.
 func _join_url(code: String) -> String:
@@ -3642,43 +3801,51 @@ func _join_url(code: String) -> String:
 			base = str(b)
 	return base + "?r=" + code
 
-## Schermo condiviso in attesa dei giocatori: codice grande, QR e posti.
+## Sala d'attesa di chi ha creato la stanza: codice grande, QR e posti.
 func _table_lobby(code: String) -> void:
-	var land := _is_landscape()
-	var root_box: BoxContainer = HBoxContainer.new() if land else VBoxContainer.new()
-	root_box.add_theme_constant_override("separation", 30)
+	var wide := _wide()
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 10)
+	var cancel := func():
+		online = {}
+		net.remember_room("")
+		show_race_setup()
+	root.add_child(_page_header("Sala d'attesa", cancel, "Annulla"))
+	var scr := ScrollContainer.new()
+	scr.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scr.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(scr)
+	var body: BoxContainer = HBoxContainer.new() if wide else VBoxContainer.new()
+	body.add_theme_constant_override("separation", 14)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scr.add_child(body)
+	var cl := _card()
+	cl.size_flags_vertical = Control.SIZE_EXPAND_FILL if wide else Control.SIZE_SHRINK_BEGIN
 	var left := VBoxContainer.new()
-	left.add_theme_constant_override("separation", 12)
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left.add_child(UIKit.title("Ion Tails", 50))
-	left.add_child(UIKit.label("Inquadra il codice col telefono, oppure apri", 19, UIKit.MUTED))
+	left.add_theme_constant_override("separation", 10)
+	cl.add_child(left)
+	left.add_child(UIKit.label("Inquadra il QR col telefono, oppure apri", 19, UIKit.MUTED))
 	var url := _join_url(code)
 	var ul := UIKit.label(url.replace("https://", ""), 19, UIKit.HEAD)
 	left.add_child(ul)
 	left.add_child(UIKit.label("e scrivi il codice della stanza:", 19, UIKit.MUTED))
-	var cl := UIKit.title(code, 92)
-	left.add_child(cl)
+	var cdl := UIKit.title(code, 92)
+	left.add_child(cdl)
 	var seats_box := VBoxContainer.new()
 	seats_box.add_theme_constant_override("separation", 6)
 	left.add_child(UIKit.heading("Giocatori"))
 	left.add_child(seats_box)
-	var info := UIKit.label("Le navette senza giocatore le guida la CPU. Movimento: %s." % ("simultaneo" if sim_variant else "a turni"), 17, UIKit.MUTED)
+	var info := UIKit.label("Le navette senza giocatore le guida il computer. Movimento: %s." % ("simultaneo" if sim_variant else "a turni"), 17, UIKit.MUTED)
 	left.add_child(info)
-	var acts := HBoxContainer.new()
-	acts.add_theme_constant_override("separation", 10)
-	var bx := UIKit.button("Annulla")
-	bx.pressed.connect(func():
-		online = {}
-		net.remember_room("")
-		show_menu())
-	acts.add_child(bx)
 	var bs := UIKit.cta("Inizia la gara")
+	bs.custom_minimum_size = Vector2(0, 60)
 	bs.pressed.connect(_online_start)
-	acts.add_child(bs)
-	left.add_child(acts)
-	root_box.add_child(left)
+	left.add_child(bs)
+	body.add_child(cl)
 	var q := QR.make(url)
 	if q != null:
+		var cr := _card()
+		cr.size_flags_vertical = Control.SIZE_EXPAND_FILL if wide else Control.SIZE_SHRINK_BEGIN
 		var tr := TextureRect.new()
 		tr.texture = ImageTexture.create_from_image(q.image(10))
 		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -3687,8 +3854,9 @@ func _table_lobby(code: String) -> void:
 		tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		var cc := CenterContainer.new()
 		cc.add_child(tr)
-		root_box.add_child(cc)
-	_modal(root_box, 1100 if land else 700, true)
+		cr.add_child(cc)
+		body.add_child(cr)
+	_page(root, "lobby")
 	_on_lbl = info
 	while online.get("code", "") == code and online.get("lobby", false):
 		var room := await net.room(code)
@@ -3706,7 +3874,8 @@ func _table_lobby(code: String) -> void:
 			dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			r.add_child(dot)
 			var k := str(i)
-			var who := str(st[k].get("name", "?")) if st.has(k) and st[k] is Dictionary else "libero (CPU)"
+			var how := " (telefono)" if _seat_kind(i) == "phone" else ""
+			var who := str(st[k].get("name", "?")) if st.has(k) and st[k] is Dictionary else "libero (guida il computer)" + how
 			var wl := UIKit.label("%s: %s" % [SledGame.NAMES[i], who], 22, UIKit.INK if st.has(k) else UIKit.MUTED)
 			wl.autowrap_mode = TextServer.AUTOWRAP_OFF
 			r.add_child(wl)
@@ -3816,6 +3985,9 @@ func _online_join() -> void:
 		_on_text("Rientro nella gara della stanza %s…" % code)
 		_online_begin(room["game"], true)
 		return
+	if online["role"] == "host":
+		_table_lobby(code)
+		return
 	_online_lobby_poll(code)
 
 func _online_lobby_poll(code: String) -> void:
@@ -3914,7 +4086,7 @@ func _online_begin(g: Dictionary, rejoin: bool) -> void:
 # ---------- Ion Tails: pannelli dell'energia ----------
 func _energy_panel() -> VBoxContainer:
 	var big: bool = layout_mode != "land"          # telefono in verticale: tasti grandi
-	var low: bool = _is_landscape() and get_viewport().get_visible_rect().size.y < 780
+	var low: bool = _is_landscape() and get_viewport().get_visible_rect().size.y < 860
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 4)
 	var cost := SledGame.alloc_cost(en_draft)
@@ -4014,14 +4186,14 @@ func _gadget_row(k: String, left: int, big := false, compact := false) -> HBoxCo
 	for lv in range(1, SledGame.max_level(k) + 1):
 		var on := lv == cur_lv
 		var b := Button.new()
-		b.custom_minimum_size = Vector2(70 if compact else 140, (40 if big else 32) if compact else (50 if big else 38))
+		b.custom_minimum_size = Vector2(70 if compact else 140, (40 if big else 32) if compact else (50 if big else 42))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.disabled = not on and lv - cur_lv > left
 		b.tooltip_text = "%s %d" % [SledGame.gadget_name(k), lv]
-		if on:
-			UIKit.style_button(b, Color(UIKit.ACCENT, 0.35), UIKit.INK, UIKit.ACCENT, 3, 10)
-		else:
-			UIKit.style_button(b, UIKit.SOFT, UIKit.INK, UIKit.LINE, 1, 10)
+		# nessun riquadro: l'immagine del token è il pulsante (acceso = luminoso, spento = scuro)
+		var empty := StyleBoxEmpty.new()
+		for sn in ["normal", "hover", "pressed", "focus", "disabled"]:
+			b.add_theme_stylebox_override(sn, empty)
 		var hb := HBoxContainer.new()
 		hb.set_anchors_preset(Control.PRESET_FULL_RECT)
 		hb.add_theme_constant_override("separation", 2)
@@ -4033,7 +4205,7 @@ func _gadget_row(k: String, left: int, big := false, compact := false) -> HBoxCo
 		t.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		t.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		t.modulate = Color(1, 1, 1, 1) if on else (Color(0.5, 0.52, 0.58, 0.6) if b.disabled else Color(0.82, 0.85, 0.9, 1))
+		t.modulate = Color(1.12, 1.12, 1.12, 1) if on else (Color(0.4, 0.42, 0.48, 0.55) if b.disabled else Color(0.62, 0.65, 0.72, 1))
 		hb.add_child(t)
 		var n := _big(str(lv), (20 if compact else (26 if big else 22)), UIKit.ENERGY if on else (UIKit.MUTED if b.disabled else UIKit.INK))
 		n.custom_minimum_size = Vector2(26, 0)

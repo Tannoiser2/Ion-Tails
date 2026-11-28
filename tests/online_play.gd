@@ -24,16 +24,21 @@ func _run() -> void:
 	await _wait(0.5)
 	var cf := OS.get_environment("ST_CODEFILE")
 	var phase := OS.get_environment("ST_PHASE")
+	if role == "host":
+		main.show_race_setup()
+	else:
+		main.show_join_room()
 	main._on_name.text = "Host" if role == "host" else "Ospite"
 	if role == "host":
 		main.course_idx = main.course_files.find("res://data/courses/bruce.json")
 		# Rosso (host), Blu fuori gara, Giallo (ospite), Verde CPU: i posti seguono i colori
 		main.setup_on = [true, false, true, true, false]
 		main.setup_ai = [false, true, false, true, true]
+		main.setup_net = ["", "", "online", "", ""]
 		if OS.get_environment("ST_SHIPS") == "1":
 			main.setup_ship[0] = ShipBuild.sanitize(ShipBuild.PRESETS[2])   # host: Fortezza
 			main.setup_ship[3] = ShipBuild.sanitize(ShipBuild.PRESETS[1])   # CPU: Predatore
-		await main._online_create()
+		await main._online_create_from_menu()
 		var code: String = main.online.get("code", "")
 		print("STTEST stanza ", code)
 		var f := FileAccess.open(cf, FileAccess.WRITE)

@@ -251,7 +251,9 @@ func _gadget_toggle(k: String, on: bool, left: int) -> Button:
 	b.custom_minimum_size = Vector2(120, 34 if land else 48)
 	b.tooltip_text = "%s: %s" % [SledGame.gadget_name(k), SledGame.GADGETS[k][2]]
 	b.disabled = not on and left < ShipBuild.GADGET_COST
-	_style_choice(b, on)
+	var empty := StyleBoxEmpty.new()
+	for sn in ["normal", "hover", "pressed", "focus", "disabled"]:
+		b.add_theme_stylebox_override(sn, empty)
 	var t := TextureRect.new()
 	t.texture = main._gadget_tex(k)
 	t.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -262,7 +264,7 @@ func _gadget_toggle(k: String, on: bool, left: int) -> Button:
 	t.offset_top = 3
 	t.offset_bottom = -3
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	t.modulate = Color(1, 1, 1, 1) if on else Color(0.45, 0.48, 0.55, 0.7)
+	t.modulate = Color(1.12, 1.12, 1.12, 1) if on else Color(0.45, 0.48, 0.55, 0.7)
 	b.add_child(t)
 	b.pressed.connect(func():
 		var g: Array = (cfg.get("g", []) as Array).duplicate()
